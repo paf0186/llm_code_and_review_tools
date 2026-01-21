@@ -1,0 +1,94 @@
+# Gerrit Comments Tool
+
+Address review comments on a patch series.
+
+## Quick Start
+
+```bash
+# 1. Start reviewing - checks out first patch with comments
+gerrit-comments review-series <URL>
+
+# 2. For each patch: fix issues, stage replies, finish
+gerrit-comments stage --done <index>        # Mark comment as done
+gerrit-comments stage <index> "message"     # Reply with message
+git add <files> && git commit --amend --no-edit
+gerrit-comments finish-patch                # Auto-advances to next
+
+# 3. When done
+gerrit-comments abort --keep-changes
+git push origin HEAD:refs/for/master
+```
+
+## Commands
+
+### Workflow
+```bash
+review-series <URL>              # Start review, checkout first patch
+stage --done <index>             # Stage "Done" reply
+stage <index> "message"          # Stage reply with message
+finish-patch                     # Complete patch, auto-advance
+abort                            # End session, restore original state
+abort --keep-changes             # End session, keep current state
+```
+
+### Navigation
+```bash
+work-on-patch <URL> <change>     # Jump to specific patch
+next-patch                       # Manually advance to next patch
+status                           # Check session status (default if in session)
+```
+
+### Information
+```bash
+series-status <URL>              # Show status of all patches in series
+series-comments <URL>            # Get comments for all patches in series
+review <URL>                     # Get code changes for review
+```
+
+### Interactive Mode
+```bash
+interactive <URL>                # Interactive mode for reviewing comments
+i <URL>                          # Shorthand for interactive
+```
+
+### Staging Management
+```bash
+staged list                      # List all staged operations
+staged show <change>             # Show staged for specific change
+staged remove <change> <index>   # Remove one staged operation
+staged clear [change]            # Clear staged (one change or all)
+staged refresh <url>             # Refresh staged metadata
+push <change>                    # Push staged operations for a change
+```
+
+### Reintegration (for stale patches)
+```bash
+continue-reintegration           # Continue after resolving conflicts
+skip-reintegration               # Skip conflicting change
+```
+
+## Key Points
+
+1. **Work earliest to latest** - finish-patch rebases all later patches
+2. **Stage replies as you fix** - Don't forget to stage for each comment
+3. **finish-patch auto-advances** - Finds the next patch with comments
+4. **Conflicts?** - Fix them, run `git add`, then `finish-patch` again
+5. **Stale patches?** - Auto-reintegrated (or prompts for conflict resolution)
+
+## Development
+
+```bash
+# Install dev dependencies
+pip install -e ".[dev]"
+
+# Run linter
+ruff check gerrit_comments/
+
+# Run tests
+pytest gerrit_comments/tests/
+
+# Run tests with coverage
+pytest gerrit_comments/tests/ --cov=gerrit_comments
+```
+
+Pre-commit hook runs linting automatically.
