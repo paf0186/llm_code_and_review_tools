@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jira-tool"
+version = "0.1.0"
+description = "LLM-agent-focused CLI tool for JIRA REST API"
+readme = "ARCHITECTURE.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "LLM Code Tools Team"}
+]
+dependencies = [
+    "click>=8.0.0",
+    "requests>=2.28.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "responses>=0.23.0",
+]
+
+[project.scripts]
+jira = "jira_tool.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+markers = [
+    "integration: marks tests as integration tests (may require network)",
+    "unit: marks tests as unit tests",
+    "readonly: marks integration tests that only read data (no side effects)",
+]
