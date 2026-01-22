@@ -6,12 +6,14 @@ This CLI provides commands for:
 2. reply - Reply to comments or mark them as done
 3. review - Get diff/changes for code review, optionally post review comments
 
+All commands output JSON by default. Use --pretty for human-readable output.
+
 Examples:
-    # Extract unresolved comments
+    # Extract unresolved comments (JSON output)
     gerrit-comments extract https://review.whamcloud.com/c/fs/lustre-release/+/62796
 
-    # Extract with JSON output
-    gerrit-comments extract --json https://review.whamcloud.com/c/fs/lustre-release/+/62796
+    # Extract with human-readable output
+    gerrit-comments extract --pretty https://review.whamcloud.com/c/fs/lustre-release/+/62796
 
     # Reply to a comment (by thread index from extract output)
     gerrit-comments reply https://review.whamcloud.com/c/fs/lustre-release/+/62796 0 "Done"
@@ -22,18 +24,20 @@ Examples:
     # Get changes for code review
     gerrit-comments review https://review.whamcloud.com/c/fs/lustre-release/+/62796
 
-    # Get changes as JSON for programmatic use
-    gerrit-comments review --json https://review.whamcloud.com/c/fs/lustre-release/+/62796
+    # Get changes with pretty output
+    gerrit-comments review --pretty https://review.whamcloud.com/c/fs/lustre-release/+/62796
 
     # Post a code review with comments from JSON file
     gerrit-comments review --post-comments comments.json https://review.whamcloud.com/62796
 """
 
 import argparse
-import json
 import sys
+from typing import Any
 
 from .client import GerritCommentsClient
+from .envelope import error_response_from_dict, format_json, success_response
+from .errors import ErrorCode, ExitCode
 from .extractor import extract_comments
 from .interactive import run_interactive
 from .interactive_vim import run_interactive_vim
@@ -53,6 +57,24 @@ from .reviewer import CodeReviewer
 from .series import SeriesFinder
 from .series_status import show_series_status
 from .staging import StagingManager
+
+
+def output_result(envelope: dict[str, Any], pretty: bool) -> None:
+    """Output result to stdout."""
+    print(format_json(envelope, pretty=pretty))
+
+
+def output_success(data: Any, command: str, pretty: bool) -> None:
+    """Output success envelope to stdout."""
+    envelope = success_response(data, command)
+    output_result(envelope, pretty)
+
+
+def output_error(code: str, message: str, command: str, pretty: bool) -> int:
+    """Output error envelope to stdout and return exit code."""
+    envelope = error_response_from_dict(code, message, command)
+    output_result(envelope, pretty)
+    return ExitCode.GENERAL_ERROR
 
 
 def generate_review_prompt(url: str) -> str:
@@ -85,6 +107,9 @@ To abort: gerrit-comments abort-session (discards all changes)"""
 
 def cmd_extract(args):
     """Extract comments from a Gerrit change."""
+    command = "extract"
+    pretty = getattr(args, 'pretty', False)
+
     try:
         result = extract_comments(
             url=args.url,
@@ -93,33 +118,20 @@ def cmd_extract(args):
             context_lines=args.context_lines,
         )
 
-        if args.json:
-            print(json.dumps(result.to_dict(), indent=2))
-        else:
-            print(result.format_summary())
-
-            # Print numbered list for easy reference
-            if result.threads:
-                print("\n" + "=" * 60)
-                print("Thread Index Reference (use with 'reply' command):")
-                print("=" * 60)
-                for i, thread in enumerate(result.threads):
-                    loc = f"{thread.root_comment.file_path}:{thread.root_comment.line or 'patchset'}"
-                    author = thread.root_comment.author.name
-                    msg_preview = thread.root_comment.message[:50].replace("\n", " ")
-                    print(f"  [{i}] {loc}")
-                    print(f"      {author}: {msg_preview}...")
+        output_success(result.to_dict(), command, pretty)
+        sys.exit(ExitCode.SUCCESS)
 
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(output_error(ErrorCode.INVALID_INPUT, str(e), command, pretty))
     except Exception as e:
-        print(f"Error extracting comments: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(output_error(ErrorCode.API_ERROR, f"Error extracting comments: {e}", command, pretty))
 
 
 def cmd_reply(args):
     """Reply to a comment."""
+    command = "reply"
+    pretty = getattr(args, 'pretty', False)
+
     try:
         # Parse URL to get change number
         base_url, change_number = GerritCommentsClient.parse_gerrit_url(args.url)
@@ -132,8 +144,11 @@ def cmd_reply(args):
         )
 
         if args.thread_index >= len(result.threads):
-            print(f"Error: Thread index {args.thread_index} out of range. Only {len(result.threads)} threads.", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(output_error(
+                ErrorCode.THREAD_INDEX_OUT_OF_RANGE,
+                f"Thread index {args.thread_index} out of range. Only {len(result.threads)} threads.",
+                command, pretty
+            ))
 
         thread = result.threads[args.thread_index]
 
@@ -149,8 +164,11 @@ def cmd_reply(args):
             mark_resolved = args.resolve
 
         if not message:
-            print("Error: Message is required (or use --done/--ack)", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(output_error(
+                ErrorCode.MISSING_REQUIRED_FIELD,
+                "Message is required (or use --done/--ack)",
+                command, pretty
+            ))
 
         # Post the reply
         replier = CommentReplier()
@@ -162,28 +180,27 @@ def cmd_reply(args):
         )
 
         if reply_result.success:
-            action = "Marked as done" if mark_resolved else "Posted reply"
-            print(f"✓ {action} on {thread.root_comment.file_path}:{thread.root_comment.line or 'patchset'}")
-            if args.json:
-                print(json.dumps(reply_result.to_dict(), indent=2))
+            output_success(reply_result.to_dict(), command, pretty)
+            sys.exit(ExitCode.SUCCESS)
         else:
-            print(f"✗ Failed: {reply_result.error}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(output_error(ErrorCode.API_ERROR, reply_result.error or "Unknown error", command, pretty))
 
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(output_error(ErrorCode.INVALID_INPUT, str(e), command, pretty))
     except Exception as e:
-        print(f"Error posting reply: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(output_error(ErrorCode.API_ERROR, f"Error posting reply: {e}", command, pretty))
 
 
 def cmd_batch_reply(args):
     """Reply to multiple comments from a JSON file."""
+    import json as json_module
+    command = "batch-reply"
+    pretty = getattr(args, 'pretty', False)
+
     try:
         # Load replies from JSON file
         with open(args.file) as f:
-            replies_data = json.load(f)
+            replies_data = json_module.load(f)
 
         # Parse URL
         base_url, change_number = GerritCommentsClient.parse_gerrit_url(args.url)
@@ -197,10 +214,11 @@ def cmd_batch_reply(args):
 
         # Build reply list
         replies = []
+        skipped = []
         for item in replies_data:
             thread_idx = item['thread_index']
             if thread_idx >= len(result.threads):
-                print(f"Warning: Thread index {thread_idx} out of range, skipping", file=sys.stderr)
+                skipped.append(thread_idx)
                 continue
 
             thread = result.threads[thread_idx]
@@ -216,20 +234,28 @@ def cmd_batch_reply(args):
         replier = CommentReplier()
         results = replier.batch_reply(change_number=change_number, replies=replies)
 
-        # Report results
+        # Build result data
         success_count = sum(1 for r in results if r.success)
-        print(f"Posted {success_count}/{len(results)} replies")
+        data = {
+            "posted": success_count,
+            "total": len(results),
+            "skipped_indices": skipped,
+            "results": [r.to_dict() for r in results],
+        }
 
-        if args.json:
-            print(json.dumps([r.to_dict() for r in results], indent=2))
+        output_success(data, command, pretty)
+        sys.exit(ExitCode.SUCCESS)
 
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(output_error(ErrorCode.API_ERROR, str(e), command, pretty))
 
 
 def cmd_review(args):
     """Get code changes for review, optionally post review comments."""
+    import json as json_module
+    command = "review"
+    pretty = getattr(args, 'pretty', False)
+
     try:
         reviewer = CodeReviewer()
 
@@ -242,7 +268,7 @@ def cmd_review(args):
         # If posting comments from file
         if args.post_comments:
             with open(args.post_comments) as f:
-                review_spec = json.load(f)
+                review_spec = json_module.load(f)
 
             result = reviewer.post_review(
                 change_number=review_data.change_info.change_number,
@@ -252,41 +278,31 @@ def cmd_review(args):
             )
 
             if result.success:
-                print(f"✓ Posted review with {result.comments_posted} comments")
-                if result.vote is not None:
-                    print(f"  Code-Review vote: {result.vote:+d}")
+                data = {
+                    "success": True,
+                    "comments_posted": result.comments_posted,
+                    "vote": result.vote,
+                }
+                output_success(data, command, pretty)
+                sys.exit(ExitCode.SUCCESS)
             else:
-                print(f"✗ Failed: {result.error}", file=sys.stderr)
-                sys.exit(1)
-            return
+                sys.exit(output_error(ErrorCode.API_ERROR, result.error or "Unknown error", command, pretty))
 
         # Output the review data
-        if args.json:
-            print(json.dumps(review_data.to_dict(), indent=2))
-        elif args.changes_only:
-            # Just show changed lines
-            for f in review_data.files:
-                print(f"=== {f.path} ({f.status}) +{f.lines_added}/-{f.lines_deleted} ===")
-                for hunk in f.hunks:
-                    for line in hunk.lines:
-                        if line.type == 'added':
-                            print(f"{line.line_number_new:5d}+ {line.content}")
-                        elif line.type == 'deleted':
-                            print(f"{line.line_number_old:5d}- {line.content}")
-                print()
-        else:
-            print(review_data.format_for_review())
+        output_success(review_data.to_dict(), command, pretty)
+        sys.exit(ExitCode.SUCCESS)
 
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(output_error(ErrorCode.INVALID_INPUT, str(e), command, pretty))
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(output_error(ErrorCode.API_ERROR, str(e), command, pretty))
 
 
 def cmd_series_comments(args):
     """Get all unresolved comments from all patches in a series."""
+    command = "series-comments"
+    pretty = getattr(args, 'pretty', False)
+
     try:
         finder = SeriesFinder()
         result = finder.get_series_comments(
@@ -294,33 +310,31 @@ def cmd_series_comments(args):
             include_resolved=args.all,
             include_code_context=not args.no_context,
             context_lines=args.context_lines,
-            show_progress=not args.json,  # Show progress for interactive use
+            show_progress=False,  # No progress in JSON mode
         )
 
-        if args.json:
-            print(json.dumps(result.to_dict(), indent=2))
-        else:
-            print(result.format_summary())
+        output_success(result.to_dict(), command, pretty)
+        sys.exit(ExitCode.SUCCESS)
 
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(output_error(ErrorCode.INVALID_INPUT, str(e), command, pretty))
     except Exception as e:
-        print(f"Error getting series comments: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(output_error(ErrorCode.API_ERROR, f"Error getting series comments: {e}", command, pretty))
 
 
 def cmd_series(args):
     """Find all patches in a series and show AI review prompt."""
+    command = "series"
+    pretty = getattr(args, 'pretty', False)
+
     try:
         # Check git state FIRST before any slow operations (fail fast)
         no_checkout = getattr(args, 'no_checkout', False)
-        if not no_checkout and not (args.json or args.urls_only or args.numbers_only):
+        if not no_checkout and not (args.urls_only or args.numbers_only):
             manager = RebaseManager()
             ready, msg = manager.check_git_repo()
             if not ready:
-                print(f"Error: {msg}", file=sys.stderr)
-                sys.exit(1)
+                sys.exit(output_error(ErrorCode.GIT_ERROR, msg, command, pretty))
 
         finder = SeriesFinder()
         series = finder.find_series(
@@ -328,95 +342,59 @@ def cmd_series(args):
             include_abandoned=args.include_abandoned,
         )
 
-        if args.json:
-            print(json.dumps(series.to_dict(), indent=2))
-        elif args.urls_only:
-            # Just print URLs, one per line
+        # Special output modes (plain text, not JSON)
+        if args.urls_only:
             for patch in series.patches:
                 print(patch.url)
+            sys.exit(ExitCode.SUCCESS)
         elif args.numbers_only:
-            # Just print change numbers, one per line
             for patch in series.patches:
                 print(patch.change_number)
-        else:
-            # Show prompt FIRST (before slow comment fetching)
-            no_prompt = getattr(args, 'no_prompt', False)
-            if not no_prompt:
-                print("=" * 70)
-                print("AI REVIEW PROMPT")
-                print("=" * 70)
-                print(generate_review_prompt(args.url))
+            sys.exit(ExitCode.SUCCESS)
 
-            print(series.format_summary())
+        # Fetch comment counts for each patch
+        patch_comments = {}
+        for patch in series.patches:
+            try:
+                result = extract_comments(
+                    url=patch.url,
+                    include_resolved=False,
+                    include_code_context=False,
+                )
+                patch_comments[patch.change_number] = len(result.threads)
+            except Exception:
+                patch_comments[patch.change_number] = -1  # Error fetching
 
-            # Fetch comment counts for each patch
-            total = len(series.patches)
-            patch_comments = {}
-            for i, patch in enumerate(series.patches, 1):
-                # Progress indicator with carriage return to overwrite
-                print(f"\rFetching comments... ({i}/{total}) {patch.change_number}", end="", flush=True)
-                try:
-                    result = extract_comments(
-                        url=patch.url,
-                        include_resolved=False,
-                        include_code_context=False,
-                    )
-                    patch_comments[patch.change_number] = len(result.threads)
-                except Exception:
-                    patch_comments[patch.change_number] = -1  # Error fetching
-            # Clear the progress line
-            print("\r" + " " * 60 + "\r", end="")
+        # Build patches with comment counts
+        patches_with_comments = [cn for cn, count in patch_comments.items() if count > 0]
+        first_with_comments = patches_with_comments[0] if patches_with_comments else None
 
-            # Show patches with comment counts
-            print("\nPatches (in order):")
-            patches_with_comments = []
-            for i, patch in enumerate(series.patches, 1):
-                count = patch_comments.get(patch.change_number, 0)
-                if count > 0:
-                    comment_str = f" [{count} comment{'s' if count > 1 else ''}]"
-                    patches_with_comments.append(patch.change_number)
-                elif count < 0:
-                    comment_str = " [error fetching comments]"
-                else:
-                    comment_str = ""
-                marker = " <-- queried" if patch.change_number == series.target_change else ""
-                print(f"{i:3}. {patch.change_number}: {patch.subject[:50]}{comment_str}{marker}")
+        # Checkout (unless --no-checkout)
+        checkout_result = None
+        if not no_checkout:
+            target_change = first_with_comments or series.patches[0].change_number
+            success, message = work_on_patch(args.url, target_change)
+            checkout_result = {
+                "success": success,
+                "change_number": target_change,
+                "message": message,
+            }
 
-            # Summary of patches needing attention
-            if patches_with_comments:
-                print(f"\n→ {len(patches_with_comments)} patch(es) with unresolved comments: {', '.join(map(str, patches_with_comments))}")
-                first_with_comments = patches_with_comments[0]
-            else:
-                print("\n→ No patches have unresolved comments")
-                first_with_comments = None
+        # Build response data
+        data = {
+            "series": series.to_dict(),
+            "comment_counts": patch_comments,
+            "patches_with_comments": patches_with_comments,
+            "checkout": checkout_result,
+        }
 
-            # Checkout (unless --no-checkout)
-            if not no_checkout:
-                if first_with_comments:
-                    print("\n" + "=" * 70)
-                    print(f"CHECKING OUT PATCH {first_with_comments}")
-                    print("=" * 70)
-                    success, message = work_on_patch(args.url, first_with_comments)
-                    print(message)
-                    if not success:
-                        sys.exit(1)
-                else:
-                    # No patches with comments - checkout the first patch
-                    first_patch = series.patches[0].change_number
-                    print("\n" + "=" * 70)
-                    print(f"CHECKING OUT FIRST PATCH {first_patch}")
-                    print("=" * 70)
-                    success, message = work_on_patch(args.url, first_patch)
-                    print(message)
-                    if not success:
-                        sys.exit(1)
+        output_success(data, command, pretty)
+        sys.exit(ExitCode.SUCCESS)
 
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(output_error(ErrorCode.INVALID_INPUT, str(e), command, pretty))
     except Exception as e:
-        print(f"Error finding series: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(output_error(ErrorCode.API_ERROR, f"Error finding series: {e}", command, pretty))
 
 
 def cmd_interactive(args):
@@ -436,12 +414,18 @@ def cmd_interactive(args):
 
 def cmd_series_status(args):
     """Show status dashboard for a patch series."""
+    command = "series-status"
+    pretty = getattr(args, 'pretty', False)
+
     try:
-        result = show_series_status(args.url, output_json=args.json)
-        print(result)
+        result = show_series_status(args.url, output_json=True)
+        # Result is already JSON string, parse and re-output with envelope
+        import json as json_module
+        data = json_module.loads(result)
+        output_success(data, command, pretty)
+        sys.exit(ExitCode.SUCCESS)
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(output_error(ErrorCode.API_ERROR, str(e), command, pretty))
 
 
 def cmd_work_on_patch(args):
@@ -660,65 +644,54 @@ def cmd_push(args):
 
 def cmd_staged_list(args):
     """List all patches with staged operations."""
+    command = "staged.list"
+    pretty = getattr(args, 'pretty', False)
+
     try:
         staging_mgr = StagingManager()
         staged_patches = staging_mgr.list_all_staged()
 
-        if not staged_patches:
-            print("No staged operations")
-            return
-
-        if args.json:
-            output = [
+        data = {
+            "staged_patches": [
                 {
                     "change_number": sp.change_number,
                     "patchset": sp.patchset,
                     "operation_count": len(sp.operations),
                 }
                 for sp in staged_patches
-            ]
-            print(json.dumps(output, indent=2))
-        else:
-            print(f"Staged operations for {len(staged_patches)} patch(es):\n")
-            for sp in staged_patches:
-                print(f"Change {sp.change_number} (patchset {sp.patchset}):")
-                print(f"  {len(sp.operations)} operation(s) staged")
-                print()
+            ],
+            "total_patches": len(staged_patches),
+        }
+
+        output_success(data, command, pretty)
+        sys.exit(ExitCode.SUCCESS)
 
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(output_error(ErrorCode.API_ERROR, str(e), command, pretty))
 
 
 def cmd_staged_show(args):
     """Show staged operations for a specific patch."""
+    command = "staged.show"
+    pretty = getattr(args, 'pretty', False)
+
     try:
         staging_mgr = StagingManager()
         staged = staging_mgr.load_staged(args.change_number)
 
         if staged is None or not staged.operations:
-            print(f"No staged operations for change {args.change_number}")
-            return
+            data = {
+                "change_number": args.change_number,
+                "staged": None,
+            }
+            output_success(data, command, pretty)
+            sys.exit(ExitCode.SUCCESS)
 
-        if args.json:
-            print(json.dumps(staged.to_dict(), indent=2))
-        else:
-            print(f"Staged operations for Change {staged.change_number} (patchset {staged.patchset}):\n")
-            for i, op in enumerate(staged.operations):
-                action = "RESOLVE" if op.resolve else "COMMENT"
-                location = f"{op.file_path}:{op.line}" if op.line else f"{op.file_path}:patchset"
-                print(f"[{i}] {location}")
-                print(f"    Action: {action}")
-                print(f"    Thread index: {op.thread_index}")
-                print(f"    Message: \"{op.message}\"")
-                print()
-
-            print(f"Total: {len(staged.operations)} operation(s)")
-            print(f"\nUse 'gerrit-comments push {args.change_number}' to post all operations")
+        output_success(staged.to_dict(), command, pretty)
+        sys.exit(ExitCode.SUCCESS)
 
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(output_error(ErrorCode.API_ERROR, str(e), command, pretty))
 
 
 def cmd_staged_remove(args):

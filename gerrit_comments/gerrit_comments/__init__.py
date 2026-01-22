@@ -58,6 +58,23 @@ Example usage:
 """
 
 from .client import GerritCommentsClient
+from .envelope import (
+    error_response,
+    error_response_from_dict,
+    format_json,
+    success_response,
+)
+from .errors import (
+    AuthError,
+    ConfigError,
+    ErrorCode,
+    ExitCode,
+    GerritToolError,
+    InvalidInputError,
+    NetworkError,
+    NotFoundError,
+    ToolError,
+)
 from .extractor import (
     CommentExtractor,
     extract_comments,
@@ -102,6 +119,20 @@ from .staging import (
 )
 
 __all__ = [
+    # Envelope/Errors
+    "error_response",
+    "error_response_from_dict",
+    "format_json",
+    "success_response",
+    "AuthError",
+    "ConfigError",
+    "ErrorCode",
+    "ExitCode",
+    "GerritToolError",
+    "InvalidInputError",
+    "NetworkError",
+    "NotFoundError",
+    "ToolError",
     # Models
     "Author",
     "CodeContext",

@@ -31,9 +31,9 @@ def add_extract_parser(subparsers):
         help="Lines of code context (default: 3)",
     )
     parser.add_argument(
-        "--json", "-j",
+        "--pretty", "-p",
         action="store_true",
-        help="Output as JSON",
+        help="Pretty-print JSON output (default: compact JSON)",
     )
     return parser
 
@@ -72,9 +72,9 @@ def add_reply_parser(subparsers):
         help="Mark thread as resolved after reply",
     )
     parser.add_argument(
-        "--json", "-j",
+        "--pretty", "-p",
         action="store_true",
-        help="Output result as JSON",
+        help="Pretty-print JSON output (default: compact JSON)",
     )
     return parser
 
@@ -92,9 +92,9 @@ def add_batch_parser(subparsers):
         help="JSON file with replies [{thread_index, message, mark_resolved}]",
     )
     parser.add_argument(
-        "--json", "-j",
+        "--pretty", "-p",
         action="store_true",
-        help="Output results as JSON",
+        help="Pretty-print JSON output (default: compact JSON)",
     )
     return parser
 
@@ -108,9 +108,9 @@ def add_review_parser(subparsers):
     )
     parser.add_argument("url", help="Gerrit change URL")
     parser.add_argument(
-        "--json", "-j",
+        "--pretty", "-p",
         action="store_true",
-        help="Output as JSON",
+        help="Pretty-print JSON output (default: compact JSON)",
     )
     parser.add_argument(
         "--changes-only", "-c",
@@ -162,14 +162,25 @@ def add_series_comments_parser(subparsers):
     )
     parser.add_argument("url", help="Gerrit change URL (any patch in the series)")
     parser.add_argument(
-        "--json", "-j",
+        "--pretty", "-p",
         action="store_true",
-        help="Output as JSON",
+        help="Pretty-print JSON output (default: compact JSON)",
     )
     parser.add_argument(
         "--all", "-a",
         action="store_true",
         help="Include resolved comments",
+    )
+    parser.add_argument(
+        "--no-context",
+        action="store_true",
+        help="Don't include code context around comments",
+    )
+    parser.add_argument(
+        "--context-lines", "-c",
+        type=int,
+        default=3,
+        help="Lines of code context (default: 3)",
     )
     return parser
 
@@ -184,9 +195,9 @@ def add_review_series_parser(subparsers):
     )
     parser.add_argument("url", help="Gerrit change URL (any patch in the series)")
     parser.add_argument(
-        "--json", "-j",
+        "--pretty", "-p",
         action="store_true",
-        help="Output as JSON",
+        help="Pretty-print JSON output (default: compact JSON)",
     )
     parser.add_argument(
         "--urls-only", "-u",
@@ -241,9 +252,9 @@ def add_series_status_parser(subparsers):
     )
     parser.add_argument("url", help="Gerrit change URL (any patch in series)")
     parser.add_argument(
-        "--json", "-j",
+        "--pretty", "-p",
         action="store_true",
-        help="Output as JSON",
+        help="Pretty-print JSON output (default: compact JSON)",
     )
     return parser
 
@@ -401,9 +412,9 @@ def add_staged_parser(subparsers, handlers):
         description="Show all staged comment replies.",
     )
     list_parser.add_argument(
-        "--json", "-j",
+        "--pretty", "-p",
         action="store_true",
-        help="Output as JSON",
+        help="Pretty-print JSON output (default: compact JSON)",
     )
     list_parser.set_defaults(func=handlers['staged_list'])
 
@@ -415,9 +426,9 @@ def add_staged_parser(subparsers, handlers):
     )
     show_parser.add_argument("change_number", type=int, help="Change number")
     show_parser.add_argument(
-        "--json", "-j",
+        "--pretty", "-p",
         action="store_true",
-        help="Output as JSON",
+        help="Pretty-print JSON output (default: compact JSON)",
     )
     show_parser.set_defaults(func=handlers['staged_show'])
 

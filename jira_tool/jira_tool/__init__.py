@@ -12,6 +12,7 @@ from .errors import (
     JiraToolError,
     NetworkError,
     NotFoundError,
+    ToolError,
 )
 
 __version__ = "0.1.0"
@@ -23,6 +24,7 @@ __all__ = [
     "error_response",
     "format_json",
     "JiraToolError",
+    "ToolError",
     "AuthError",
     "NotFoundError",
     "InvalidInputError",

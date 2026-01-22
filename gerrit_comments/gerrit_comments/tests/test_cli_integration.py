@@ -370,8 +370,10 @@ class TestStagedParserHandlerContract:
         # Should be able to call the handler without AttributeError
         # We mock the actual staging manager
         with patch('gerrit_comments.cli.StagingManager') as MockStaging:
-            MockStaging.return_value.list_all_changes.return_value = {}
-            args.func(args)
+            MockStaging.return_value.list_all_staged.return_value = []
+            with pytest.raises(SystemExit) as exc_info:
+                args.func(args)
+            assert exc_info.value.code == 0
 
     def test_staged_show_attributes(self):
         """Test staged show has required attributes."""

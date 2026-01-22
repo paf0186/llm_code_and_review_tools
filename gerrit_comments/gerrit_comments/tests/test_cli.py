@@ -39,7 +39,7 @@ class TestCmdSeries:
         """Create mock args for cmd_series."""
         args = argparse.Namespace(
             url="https://review.whamcloud.com/c/fs/lustre-release/+/62757",
-            json=False,
+            pretty=False,
             urls_only=False,
             numbers_only=False,
             include_abandoned=False,
@@ -53,7 +53,7 @@ class TestCmdSeries:
         """Create mock args with no_checkout=True."""
         args = argparse.Namespace(
             url="https://review.whamcloud.com/c/fs/lustre-release/+/62757",
-            json=False,
+            pretty=False,
             urls_only=False,
             numbers_only=False,
             include_abandoned=False,
@@ -93,21 +93,24 @@ class TestCmdSeries:
             mock_finder.find_series.return_value = mock_series
             MockSeriesFinder.return_value = mock_finder
 
-            # Set json=True to get simple output path
-            mock_args_no_checkout.json = True
-            cmd_series(mock_args_no_checkout)
+            # Set pretty=False to get JSON output path
+            mock_args_no_checkout.pretty = False
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_series(mock_args_no_checkout)
+            assert exc_info.value.code == 0
 
             # Verify RebaseManager was NOT instantiated
             MockRebaseManager.assert_not_called()
 
-    def test_skips_git_check_for_json_output(self):
-        """Test that git state check is skipped for JSON output."""
+    def test_skips_git_check_for_no_checkout_output(self):
+        """Test that git state check is skipped when no_checkout is set."""
         args = argparse.Namespace(
             url="https://review.whamcloud.com/c/fs/lustre-release/+/62757",
-            json=True,
+            pretty=False,
             urls_only=False,
             numbers_only=False,
             include_abandoned=False,
+            no_checkout=True,
         )
         with patch('gerrit_comments.cli.RebaseManager') as MockRebaseManager, \
              patch('gerrit_comments.cli.SeriesFinder') as MockSeriesFinder:
@@ -118,7 +121,9 @@ class TestCmdSeries:
             mock_finder.find_series.return_value = mock_series
             MockSeriesFinder.return_value = mock_finder
 
-            cmd_series(args)
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_series(args)
+            assert exc_info.value.code == 0
 
             # Verify RebaseManager was NOT instantiated
             MockRebaseManager.assert_not_called()
@@ -168,14 +173,16 @@ class TestCmdExtract:
             all=False,
             no_context=False,
             context_lines=3,
-            json=True,
+            pretty=False,
         )
         with patch('gerrit_comments.cli.extract_comments') as mock_extract:
             mock_result = MagicMock()
             mock_result.to_dict.return_value = {"threads": []}
             mock_extract.return_value = mock_result
 
-            cmd_extract(args)
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_extract(args)
+            assert exc_info.value.code == 0
 
             mock_extract.assert_called_once()
 
@@ -187,7 +194,7 @@ class TestCmdExtract:
             all=False,
             no_context=False,
             context_lines=3,
-            json=False,
+            pretty=False,
         )
         with patch('gerrit_comments.cli.extract_comments') as mock_extract, \
              pytest.raises(SystemExit) as exc_info:
@@ -427,40 +434,40 @@ class TestCmdStagedOperations:
     def test_staged_list_empty(self):
         """Test staged-list with no staged operations."""
         from gerrit_comments.cli import cmd_staged_list
-        args = argparse.Namespace(json=False)
+        args = argparse.Namespace(pretty=False)
         with patch('gerrit_comments.cli.StagingManager') as MockStaging:
             MockStaging.return_value.list_all_staged.return_value = []
-            cmd_staged_list(args)
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_staged_list(args)
+            assert exc_info.value.code == 0
 
     def test_staged_list_with_items(self):
         """Test staged-list with staged operations."""
         from gerrit_comments.cli import cmd_staged_list
-        args = argparse.Namespace(json=False)
+        args = argparse.Namespace(pretty=False)
         with patch('gerrit_comments.cli.StagingManager') as MockStaging:
             mock_staged = MagicMock()
             mock_staged.change_number = 12345
             mock_staged.patchset = 5
-            mock_staged.operations = [MagicMock()]
+            mock_staged.to_dict.return_value = {"change_number": 12345, "patchset": 5, "operations": []}
             MockStaging.return_value.list_all_staged.return_value = [mock_staged]
-            cmd_staged_list(args)
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_staged_list(args)
+            assert exc_info.value.code == 0
 
     def test_staged_show(self):
         """Test staged show command."""
         from gerrit_comments.cli import cmd_staged_show
-        args = argparse.Namespace(change_number=12345, json=False)
+        args = argparse.Namespace(change_number=12345, pretty=False)
         with patch('gerrit_comments.cli.StagingManager') as MockStaging:
             mock_staged = MagicMock()
             mock_staged.change_number = 12345
             mock_staged.patchset = 5
-            mock_op = MagicMock()
-            mock_op.resolve = True
-            mock_op.file_path = "file.c"
-            mock_op.line = 10
-            mock_op.thread_index = 0
-            mock_op.message = "Done"
-            mock_staged.operations = [mock_op]
+            mock_staged.to_dict.return_value = {"change_number": 12345, "patchset": 5, "operations": []}
             MockStaging.return_value.load_staged.return_value = mock_staged
-            cmd_staged_show(args)
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_staged_show(args)
+            assert exc_info.value.code == 0
 
     def test_staged_remove(self):
         """Test staged remove command."""
@@ -688,32 +695,26 @@ class TestCmdExtractFormatted:
     """Tests for cmd_extract with formatted output."""
 
     def test_extract_formatted_with_threads(self):
-        """Test extract with formatted output and threads."""
+        """Test extract with pretty output and threads."""
         from gerrit_comments.cli import cmd_extract
         args = argparse.Namespace(
             url="https://example.com/12345",
             all=False,
             no_context=False,
             context_lines=3,
-            json=False,
+            pretty=True,
         )
 
         with patch('gerrit_comments.cli.extract_comments') as mock_extract:
-            mock_thread = MagicMock()
-            mock_thread.root_comment.file_path = "foo.py"
-            mock_thread.root_comment.line = 42
-            mock_thread.root_comment.author.name = "Test User"
-            mock_thread.root_comment.message = "This is a test comment message"
-
             mock_result = MagicMock()
-            mock_result.threads = [mock_thread]
-            mock_result.format_summary.return_value = "Summary output"
+            mock_result.to_dict.return_value = {"threads": []}
             mock_extract.return_value = mock_result
 
-            cmd_extract(args)
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_extract(args)
+            assert exc_info.value.code == 0
 
             mock_extract.assert_called_once()
-            mock_result.format_summary.assert_called_once()
 
     def test_extract_value_error(self):
         """Test extract handles ValueError."""
@@ -723,7 +724,7 @@ class TestCmdExtractFormatted:
             all=False,
             no_context=False,
             context_lines=3,
-            json=False,
+            pretty=False,
         )
 
         with patch('gerrit_comments.cli.extract_comments') as mock_extract:
@@ -746,7 +747,7 @@ class TestCmdReply:
             ack=False,
             message=None,
             resolve=False,
-            json=False,
+            pretty=False,
         )
 
         with patch('gerrit_comments.cli.GerritCommentsClient') as MockClient, \
@@ -765,9 +766,12 @@ class TestCmdReply:
 
             mock_reply_result = MagicMock()
             mock_reply_result.success = True
+            mock_reply_result.to_dict.return_value = {"success": True}
             MockReplier.return_value.reply_to_thread.return_value = mock_reply_result
 
-            cmd_reply(args)
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_reply(args)
+            assert exc_info.value.code == 0
 
             MockReplier.return_value.reply_to_thread.assert_called_once()
             call_kwargs = MockReplier.return_value.reply_to_thread.call_args
@@ -784,7 +788,7 @@ class TestCmdReply:
             ack=False,
             message="Test",
             resolve=False,
-            json=False,
+            pretty=False,
         )
 
         with patch('gerrit_comments.cli.GerritCommentsClient') as MockClient, \
@@ -810,7 +814,7 @@ class TestCmdReply:
             ack=False,
             message=None,
             resolve=False,
-            json=False,
+            pretty=False,
         )
 
         with patch('gerrit_comments.cli.GerritCommentsClient') as MockClient, \
@@ -838,7 +842,7 @@ class TestCmdReview:
             url="https://example.com/12345",
             full_content=False,
             post_comments=None,
-            json=True,
+            pretty=False,
             changes_only=False,
         )
 
@@ -847,7 +851,9 @@ class TestCmdReview:
             mock_data.to_dict.return_value = {"test": "data"}
             MockReviewer.return_value.get_review_data.return_value = mock_data
 
-            cmd_review(args)
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_review(args)
+            assert exc_info.value.code == 0
 
             MockReviewer.return_value.get_review_data.assert_called_once()
             mock_data.to_dict.assert_called_once()
@@ -859,31 +865,18 @@ class TestCmdReview:
             url="https://example.com/12345",
             full_content=False,
             post_comments=None,
-            json=False,
+            pretty=False,
             changes_only=True,
         )
 
         with patch('gerrit_comments.cli.CodeReviewer') as MockReviewer:
-            mock_line = MagicMock()
-            mock_line.type = "added"
-            mock_line.line_number_new = 10
-            mock_line.content = "new code"
-
-            mock_hunk = MagicMock()
-            mock_hunk.lines = [mock_line]
-
-            mock_file = MagicMock()
-            mock_file.path = "test.py"
-            mock_file.status = "modified"
-            mock_file.lines_added = 1
-            mock_file.lines_deleted = 0
-            mock_file.hunks = [mock_hunk]
-
             mock_data = MagicMock()
-            mock_data.files = [mock_file]
+            mock_data.to_dict.return_value = {"files": []}
             MockReviewer.return_value.get_review_data.return_value = mock_data
 
-            cmd_review(args)
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_review(args)
+            assert exc_info.value.code == 0
 
             MockReviewer.return_value.get_review_data.assert_called_once()
 
@@ -894,7 +887,7 @@ class TestCmdReview:
             url="https://example.com/12345",
             full_content=False,
             post_comments=None,
-            json=False,
+            pretty=False,
             changes_only=False,
         )
 
@@ -917,7 +910,7 @@ class TestCmdSeriesComments:
             all=False,
             no_context=False,
             context_lines=3,
-            json=True,
+            pretty=False,
         )
 
         with patch('gerrit_comments.cli.SeriesFinder') as MockFinder:
@@ -925,30 +918,32 @@ class TestCmdSeriesComments:
             mock_result.to_dict.return_value = {"patches": []}
             MockFinder.return_value.get_series_comments.return_value = mock_result
 
-            cmd_series_comments(args)
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_series_comments(args)
+            assert exc_info.value.code == 0
 
             MockFinder.return_value.get_series_comments.assert_called_once()
             mock_result.to_dict.assert_called_once()
 
     def test_series_comments_formatted(self):
-        """Test series-comments with formatted output."""
+        """Test series-comments with pretty output."""
         from gerrit_comments.cli import cmd_series_comments
         args = argparse.Namespace(
             url="https://example.com/12345",
             all=False,
             no_context=False,
             context_lines=3,
-            json=False,
+            pretty=True,
         )
 
         with patch('gerrit_comments.cli.SeriesFinder') as MockFinder:
             mock_result = MagicMock()
-            mock_result.format_summary.return_value = "Summary"
+            mock_result.to_dict.return_value = {"patches": []}
             MockFinder.return_value.get_series_comments.return_value = mock_result
 
-            cmd_series_comments(args)
-
-            mock_result.format_summary.assert_called_once()
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_series_comments(args)
+            assert exc_info.value.code == 0
 
     def test_series_comments_error(self):
         """Test series-comments error handling."""
@@ -958,7 +953,7 @@ class TestCmdSeriesComments:
             all=False,
             no_context=False,
             context_lines=3,
-            json=False,
+            pretty=False,
         )
 
         with patch('gerrit_comments.cli.SeriesFinder') as MockFinder:
@@ -973,32 +968,36 @@ class TestCmdSeriesStatus:
     """Tests for cmd_series_status function."""
 
     def test_series_status_success(self):
-        """Test series-status displays status."""
+        """Test series-status displays status (now always gets JSON from backend)."""
         from gerrit_comments.cli import cmd_series_status
         args = argparse.Namespace(
             url="https://example.com/12345",
-            json=False,
+            pretty=False,
         )
 
         with patch('gerrit_comments.cli.show_series_status') as mock_show:
-            mock_show.return_value = "Status dashboard"
+            mock_show.return_value = '{"status": "ok"}'
 
-            cmd_series_status(args)
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_series_status(args)
+            assert exc_info.value.code == 0
 
-            mock_show.assert_called_once_with("https://example.com/12345", output_json=False)
+            mock_show.assert_called_once_with("https://example.com/12345", output_json=True)
 
     def test_series_status_json(self):
         """Test series-status with JSON output."""
         from gerrit_comments.cli import cmd_series_status
         args = argparse.Namespace(
             url="https://example.com/12345",
-            json=True,
+            pretty=False,
         )
 
         with patch('gerrit_comments.cli.show_series_status') as mock_show:
             mock_show.return_value = '{"status": "ok"}'
 
-            cmd_series_status(args)
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_series_status(args)
+            assert exc_info.value.code == 0
 
             mock_show.assert_called_once_with("https://example.com/12345", output_json=True)
 
@@ -1007,7 +1006,7 @@ class TestCmdSeriesStatus:
         from gerrit_comments.cli import cmd_series_status
         args = argparse.Namespace(
             url="https://example.com/12345",
-            json=False,
+            pretty=False,
         )
 
         with patch('gerrit_comments.cli.show_series_status') as mock_show:
@@ -1090,7 +1089,7 @@ class TestCmdBatchReply:
         args = argparse.Namespace(
             url="https://example.com/12345",
             file=str(replies_file),
-            json=False,
+            pretty=False,
         )
 
         with patch('gerrit_comments.cli.GerritCommentsClient') as MockClient, \
@@ -1110,9 +1109,12 @@ class TestCmdBatchReply:
 
             mock_reply_result = MagicMock()
             mock_reply_result.success = True
+            mock_reply_result.to_dict.return_value = {"success": True}
             MockReplier.return_value.batch_reply.return_value = [mock_reply_result]
 
-            cmd_batch_reply(args)
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_batch_reply(args)
+            assert exc_info.value.code == 0
 
             MockReplier.return_value.batch_reply.assert_called_once()
 
@@ -1127,7 +1129,7 @@ class TestCmdBatchReply:
         args = argparse.Namespace(
             url="https://example.com/12345",
             file=str(replies_file),
-            json=False,
+            pretty=False,
         )
 
         with patch('gerrit_comments.cli.GerritCommentsClient') as MockClient, \
@@ -1142,8 +1144,10 @@ class TestCmdBatchReply:
 
             MockReplier.return_value.batch_reply.return_value = []
 
-            # Should not raise, just skip the invalid item
-            cmd_batch_reply(args)
+            # Should not raise, just skip the invalid item - now outputs JSON with empty results
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_batch_reply(args)
+            assert exc_info.value.code == 0
 
             # batch_reply called with empty list
             MockReplier.return_value.batch_reply.assert_called_once()
@@ -1156,7 +1160,7 @@ class TestCmdSeriesOutputFormats:
         """Test series with --urls-only."""
         args = argparse.Namespace(
             url="https://example.com/12345",
-            json=False,
+            pretty=False,
             urls_only=True,
             numbers_only=False,
             include_abandoned=False,
@@ -1171,9 +1175,12 @@ class TestCmdSeriesOutputFormats:
 
             mock_series = MagicMock()
             mock_series.patches = [mock_patch]
+            mock_series.to_dict.return_value = {"patches": []}
             MockFinder.return_value.find_series.return_value = mock_series
 
-            cmd_series(args)
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_series(args)
+            assert exc_info.value.code == 0
 
             MockFinder.return_value.find_series.assert_called_once()
 
@@ -1181,7 +1188,7 @@ class TestCmdSeriesOutputFormats:
         """Test series with --numbers-only."""
         args = argparse.Namespace(
             url="https://example.com/12345",
-            json=False,
+            pretty=False,
             urls_only=False,
             numbers_only=True,
             include_abandoned=False,
@@ -1195,9 +1202,12 @@ class TestCmdSeriesOutputFormats:
 
             mock_series = MagicMock()
             mock_series.patches = [mock_patch]
+            mock_series.to_dict.return_value = {"patches": []}
             MockFinder.return_value.find_series.return_value = mock_series
 
-            cmd_series(args)
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_series(args)
+            assert exc_info.value.code == 0
 
             MockFinder.return_value.find_series.assert_called_once()
 
@@ -1205,7 +1215,7 @@ class TestCmdSeriesOutputFormats:
         """Test series with full output (fetches comments)."""
         args = argparse.Namespace(
             url="https://example.com/12345",
-            json=False,
+            pretty=False,
             urls_only=False,
             numbers_only=False,
             include_abandoned=False,
@@ -1224,7 +1234,7 @@ class TestCmdSeriesOutputFormats:
             mock_series = MagicMock()
             mock_series.patches = [mock_patch]
             mock_series.target_change = 12345
-            mock_series.format_summary.return_value = "Series summary"
+            mock_series.to_dict.return_value = {"patches": []}
             MockFinder.return_value.find_series.return_value = mock_series
 
             # No unresolved threads
@@ -1232,9 +1242,10 @@ class TestCmdSeriesOutputFormats:
             mock_result.threads = []
             mock_extract.return_value = mock_result
 
-            cmd_series(args)
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_series(args)
+            assert exc_info.value.code == 0
 
-            mock_series.format_summary.assert_called_once()
             mock_extract.assert_called_once()
 
 
@@ -1251,7 +1262,7 @@ class TestCmdReplyVariants:
             ack=True,
             message=None,
             resolve=False,
-            json=False,
+            pretty=False,
         )
 
         with patch('gerrit_comments.cli.GerritCommentsClient') as MockClient, \
@@ -1270,9 +1281,12 @@ class TestCmdReplyVariants:
 
             mock_reply_result = MagicMock()
             mock_reply_result.success = True
+            mock_reply_result.to_dict.return_value = {"success": True}
             MockReplier.return_value.reply_to_thread.return_value = mock_reply_result
 
-            cmd_reply(args)
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_reply(args)
+            assert exc_info.value.code == 0
 
             call_kwargs = MockReplier.return_value.reply_to_thread.call_args
             assert call_kwargs[1]['message'] == "Acknowledged"
@@ -1288,7 +1302,7 @@ class TestCmdReplyVariants:
             ack=False,
             message=None,
             resolve=False,
-            json=False,
+            pretty=False,
         )
 
         with patch('gerrit_comments.cli.GerritCommentsClient') as MockClient, \
@@ -1308,6 +1322,7 @@ class TestCmdReplyVariants:
             mock_reply_result = MagicMock()
             mock_reply_result.success = False
             mock_reply_result.error = "API error"
+            mock_reply_result.to_dict.return_value = {"success": False, "error": "API error"}
             MockReplier.return_value.reply_to_thread.return_value = mock_reply_result
 
             with pytest.raises(SystemExit) as exc_info:
@@ -1330,7 +1345,7 @@ class TestCmdReviewPostComments:
             url="https://example.com/12345",
             full_content=False,
             post_comments=str(review_file),
-            json=False,
+            pretty=False,
             changes_only=False,
         )
 
@@ -1343,9 +1358,12 @@ class TestCmdReviewPostComments:
             mock_post_result.success = True
             mock_post_result.comments_posted = 0
             mock_post_result.vote = 1
+            mock_post_result.to_dict.return_value = {"success": True}
             MockReviewer.return_value.post_review.return_value = mock_post_result
 
-            cmd_review(args)
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_review(args)
+            assert exc_info.value.code == 0
 
             MockReviewer.return_value.post_review.assert_called_once()
 
@@ -1361,7 +1379,7 @@ class TestCmdReviewPostComments:
             url="https://example.com/12345",
             full_content=False,
             post_comments=str(review_file),
-            json=False,
+            pretty=False,
             changes_only=False,
         )
 
@@ -1373,6 +1391,7 @@ class TestCmdReviewPostComments:
             mock_post_result = MagicMock()
             mock_post_result.success = False
             mock_post_result.error = "API error"
+            mock_post_result.to_dict.return_value = {"success": False, "error": "API error"}
             MockReviewer.return_value.post_review.return_value = mock_post_result
 
             with pytest.raises(SystemExit) as exc_info:
@@ -1380,21 +1399,21 @@ class TestCmdReviewPostComments:
             assert exc_info.value.code == 1
 
     def test_review_formatted_output(self):
-        """Test review with formatted output (not JSON, not changes-only)."""
+        """Test review with pretty output (pretty JSON)."""
         from gerrit_comments.cli import cmd_review
         args = argparse.Namespace(
             url="https://example.com/12345",
             full_content=False,
             post_comments=None,
-            json=False,
+            pretty=True,
             changes_only=False,
         )
 
         with patch('gerrit_comments.cli.CodeReviewer') as MockReviewer:
             mock_data = MagicMock()
-            mock_data.format_for_review.return_value = "Formatted review data"
+            mock_data.to_dict.return_value = {"test": "data"}
             MockReviewer.return_value.get_review_data.return_value = mock_data
 
-            cmd_review(args)
-
-            mock_data.format_for_review.assert_called_once()
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_review(args)
+            assert exc_info.value.code == 0

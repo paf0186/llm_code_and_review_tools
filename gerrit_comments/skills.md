@@ -2,6 +2,21 @@
 
 Address review comments on a patch series.
 
+## Output Format
+
+All commands return JSON with this structure:
+- `ok`: boolean indicating success
+- `data`: the response payload (on success)
+- `error`: error details (on failure)
+- `meta`: metadata including tool name (`gerrit-comments`), command, and timestamp
+
+Use `--pretty` flag for human-readable formatted output.
+
+Example response:
+```json
+{"ok": true, "data": {...}, "meta": {"tool": "gerrit-comments", "command": "extract", "timestamp": "2026-01-22T12:00:00Z"}}
+```
+
 ## Quick Start
 
 ```bash
@@ -74,6 +89,30 @@ skip-reintegration               # Skip conflicting change
 3. **finish-patch auto-advances** - Finds the next patch with comments
 4. **Conflicts?** - Fix them, run `git add`, then `finish-patch` again
 5. **Stale patches?** - Auto-reintegrated (or prompts for conflict resolution)
+
+## Error Handling
+
+Exit codes:
+- 0: Success
+- 1: General error
+- 2: Authentication error
+- 3: Not found
+- 4: Invalid input
+- 5: Network error
+
+Error responses include:
+- `code`: Machine-readable error code (e.g., `CHANGE_NOT_FOUND`, `INVALID_URL`)
+- `message`: Human-readable description
+- `http_status`: HTTP status code (if applicable)
+- `details`: Additional context
+
+## Tips for LLM Agents
+
+1. **Parse the `ok` field** first to determine success/failure
+2. **Use `--pretty`** when debugging or showing output to users
+3. **Check series-status** before starting work on a patch series
+4. **Stage replies as you go** - don't forget to stage before finish-patch
+5. **Handle exit codes** to distinguish error types
 
 ## Development
 

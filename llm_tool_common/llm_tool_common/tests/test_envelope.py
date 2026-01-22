@@ -1,27 +1,18 @@
-"""Unit tests for response envelope."""
+"""Unit tests for shared response envelope functions."""
 
 import json
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from jira_tool.envelope import (
+from llm_tool_common.llm_tool_common.envelope import (
+    _build_meta,
+    _get_timestamp,
     error_response,
     error_response_from_dict,
     format_json,
     success_response,
 )
-# Import internal functions from the shared module for testing
-from llm_tool_common.llm_tool_common.envelope import (
-    _build_meta as _build_meta_base,
-    _get_timestamp,
-)
-from jira_tool.errors import JiraToolError
-
-
-# Wrapper to match old test interface (takes just command, adds tool)
-def _build_meta(command: str) -> dict[str, str]:
-    """Build meta with jira tool name for backward-compatible tests."""
-    return _build_meta_base("jira", command)
+from llm_tool_common.llm_tool_common.errors import ToolError
 
 
 class TestTimestamp:
@@ -43,7 +34,7 @@ class TestTimestamp:
         mock_datetime.now.return_value = mock_dt
         mock_datetime.strptime = datetime.strptime
 
-        _get_timestamp()  # Call to trigger the mock
+        _get_timestamp()
         mock_datetime.now.assert_called_once_with(timezone.utc)
 
 
@@ -52,15 +43,16 @@ class TestBuildMeta:
 
     def test_meta_structure(self):
         """Meta should have required fields."""
-        meta = _build_meta("issue.get")
-        assert meta["tool"] == "jira"
-        assert meta["command"] == "issue.get"
+        meta = _build_meta("test-tool", "some.command")
+        assert meta["tool"] == "test-tool"
+        assert meta["command"] == "some.command"
         assert "timestamp" in meta
 
-    def test_meta_command_preserved(self):
-        """Command should be preserved exactly."""
-        meta = _build_meta("issue.comments")
-        assert meta["command"] == "issue.comments"
+    def test_meta_tool_and_command_preserved(self):
+        """Tool and command should be preserved exactly."""
+        meta = _build_meta("gerrit-comments", "extract")
+        assert meta["tool"] == "gerrit-comments"
+        assert meta["command"] == "extract"
 
 
 class TestSuccessResponse:
@@ -68,26 +60,23 @@ class TestSuccessResponse:
 
     def test_success_response_structure(self):
         """Success response should have ok=True and data."""
-        result = success_response({"key": "PROJ-123"}, "issue.get")
+        result = success_response({"key": "value"}, "my-tool", "my.command")
         assert result["ok"] is True
-        assert result["data"] == {"key": "PROJ-123"}
+        assert result["data"] == {"key": "value"}
         assert "meta" in result
+        assert result["meta"]["tool"] == "my-tool"
+        assert result["meta"]["command"] == "my.command"
 
     def test_success_response_with_list_data(self):
         """Success response should work with list data."""
-        data = [{"key": "PROJ-1"}, {"key": "PROJ-2"}]
-        result = success_response(data, "issue.search")
+        data = [{"id": 1}, {"id": 2}]
+        result = success_response(data, "tool", "search")
         assert result["data"] == data
 
     def test_success_response_with_none_data(self):
         """Success response should work with None data."""
-        result = success_response(None, "issue.transition")
+        result = success_response(None, "tool", "delete")
         assert result["data"] is None
-
-    def test_success_response_meta_command(self):
-        """Meta should contain the command."""
-        result = success_response({}, "config.test")
-        assert result["meta"]["command"] == "config.test"
 
 
 class TestErrorResponse:
@@ -95,27 +84,28 @@ class TestErrorResponse:
 
     def test_error_response_structure(self):
         """Error response should have ok=False and error dict."""
-        error = JiraToolError(
+        error = ToolError(
             code="TEST_ERROR",
             message="Test message",
             http_status=400,
         )
-        result = error_response(error, "issue.get")
+        result = error_response(error, "my-tool", "my.command")
 
         assert result["ok"] is False
         assert result["error"]["code"] == "TEST_ERROR"
         assert result["error"]["message"] == "Test message"
         assert result["error"]["http_status"] == 400
         assert "meta" in result
+        assert result["meta"]["tool"] == "my-tool"
 
     def test_error_response_with_details(self):
         """Error response should include details."""
-        error = JiraToolError(
+        error = ToolError(
             code="TEST_ERROR",
             message="Test",
             details={"field": "value"},
         )
-        result = error_response(error, "issue.create")
+        result = error_response(error, "tool", "command")
         assert result["error"]["details"] == {"field": "value"}
 
 
@@ -127,6 +117,7 @@ class TestErrorResponseFromDict:
         result = error_response_from_dict(
             code="ERROR",
             message="An error",
+            tool="test-tool",
             command="test",
         )
         assert result["ok"] is False
@@ -134,12 +125,14 @@ class TestErrorResponseFromDict:
         assert result["error"]["message"] == "An error"
         assert "http_status" not in result["error"]
         assert "details" not in result["error"]
+        assert result["meta"]["tool"] == "test-tool"
 
     def test_full_error(self):
         """Should include all optional fields."""
         result = error_response_from_dict(
             code="ERROR",
             message="An error",
+            tool="tool",
             command="test",
             http_status=500,
             details={"extra": "info"},
@@ -172,3 +165,4 @@ class TestFormatJson:
         result = format_json(envelope)
         assert "日本語" in result
         assert "\\u" not in result
+

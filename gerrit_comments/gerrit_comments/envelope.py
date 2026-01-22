@@ -1,7 +1,7 @@
 """Response envelope helpers for standardized JSON output.
 
 This module provides thin wrappers around the shared llm_tool_common
-envelope functions, pre-configured for the JIRA tool.
+envelope functions, pre-configured for the gerrit-comments tool.
 """
 
 from typing import Any
@@ -14,7 +14,7 @@ from llm_tool_common import (
 )
 
 # The tool name for metadata
-TOOL_NAME = "jira"
+TOOL_NAME = "gerrit-comments"
 
 # Re-export format_json directly
 __all__ = ["success_response", "error_response", "error_response_from_dict", "format_json"]
@@ -26,7 +26,7 @@ def success_response(data: Any, command: str) -> dict[str, Any]:
 
     Args:
         data: The response data payload
-        command: The command that was executed (e.g., "issue.get")
+        command: The command that was executed (e.g., "extract", "reply")
 
     Returns:
         Standard success envelope dictionary
@@ -36,7 +36,7 @@ def success_response(data: Any, command: str) -> dict[str, Any]:
 
 def error_response(error: Any, command: str) -> dict[str, Any]:
     """
-    Create an error response envelope from a JiraToolError.
+    Create an error response envelope from a GerritToolError.
 
     Args:
         error: The error that occurred (must have to_dict() method)
@@ -71,3 +71,4 @@ def error_response_from_dict(
     return _error_response_from_dict(
         code, message, TOOL_NAME, command, http_status, details
     )
+

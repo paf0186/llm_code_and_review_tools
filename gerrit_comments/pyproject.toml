@@ -30,6 +30,7 @@ dependencies = [
     "flask>=3.0.2",
     "flask-caching>=2.1.0",
     "python-dotenv>=0.19.0",
+    "llm-tool-common",
 ]
 
 [project.optional-dependencies]

@@ -24,7 +24,7 @@ class TestParserHandlerIntegration:
 
         # These are all accessed by cmd_series - verify they exist
         assert hasattr(args, 'url')
-        assert hasattr(args, 'json')
+        assert hasattr(args, 'pretty')
         assert hasattr(args, 'urls_only')
         assert hasattr(args, 'numbers_only')
         assert hasattr(args, 'include_abandoned')
@@ -32,7 +32,7 @@ class TestParserHandlerIntegration:
         assert hasattr(args, 'checkout')
 
         # Verify default values
-        assert args.json is False
+        assert args.pretty is False
         assert args.urls_only is False
         assert args.numbers_only is False
         assert args.include_abandoned is False
@@ -130,7 +130,7 @@ class TestParserCreation:
         args = parser.parse_args(['extract', 'https://example.com/12345'])
         assert args.url == 'https://example.com/12345'
         assert args.all is False
-        assert args.json is False
+        assert args.pretty is False
 
     def test_add_extract_parser_with_options(self):
         """Test extract parser accepts all options."""
@@ -142,10 +142,10 @@ class TestParserCreation:
 
         args = parser.parse_args([
             'extract', 'https://example.com/12345',
-            '--all', '--json', '--no-context', '--context-lines', '5'
+            '--all', '--pretty', '--no-context', '--context-lines', '5'
         ])
         assert args.all is True
-        assert args.json is True
+        assert args.pretty is True
         assert args.no_context is True
         assert args.context_lines == 5
 
@@ -345,7 +345,7 @@ class TestConsolidatedParsers:
 
         args = parser.parse_args(['staged', 'list'])
         assert args.staged_command == 'list'
-        assert hasattr(args, 'json')
+        assert hasattr(args, 'pretty')
 
     def test_staged_parser_show(self):
         """Test staged show subcommand."""
