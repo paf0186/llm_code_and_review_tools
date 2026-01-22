@@ -1,6 +1,6 @@
 """Unit tests for shared error classes."""
 
-from llm_tool_common.llm_tool_common.errors import (
+from llm_tool_common.errors import (
     AuthError,
     ConfigError,
     ErrorCode,

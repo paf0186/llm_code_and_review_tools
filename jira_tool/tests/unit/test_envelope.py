@@ -11,7 +11,7 @@ from jira_tool.envelope import (
     success_response,
 )
 # Import internal functions from the shared module for testing
-from llm_tool_common.llm_tool_common.envelope import (
+from llm_tool_common.envelope import (
     _build_meta as _build_meta_base,
     _get_timestamp,
 )
@@ -36,7 +36,7 @@ class TestTimestamp:
         # Should be parseable
         datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ")
 
-    @patch("llm_tool_common.llm_tool_common.envelope.datetime")
+    @patch("llm_tool_common.envelope.datetime")
     def test_timestamp_uses_utc(self, mock_datetime):
         """Timestamp should use UTC timezone."""
         mock_dt = datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc)

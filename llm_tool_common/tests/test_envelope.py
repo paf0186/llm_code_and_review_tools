@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from llm_tool_common.llm_tool_common.envelope import (
+from llm_tool_common.envelope import (
     _build_meta,
     _get_timestamp,
     error_response,
@@ -12,7 +12,7 @@ from llm_tool_common.llm_tool_common.envelope import (
     format_json,
     success_response,
 )
-from llm_tool_common.llm_tool_common.errors import ToolError
+from llm_tool_common.errors import ToolError
 
 
 class TestTimestamp:
@@ -27,7 +27,7 @@ class TestTimestamp:
         # Should be parseable
         datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ")
 
-    @patch("llm_tool_common.llm_tool_common.envelope.datetime")
+    @patch("llm_tool_common.envelope.datetime")
     def test_timestamp_uses_utc(self, mock_datetime):
         """Timestamp should use UTC timezone."""
         mock_dt = datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
