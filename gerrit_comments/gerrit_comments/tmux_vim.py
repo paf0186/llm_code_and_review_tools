@@ -275,6 +275,8 @@ class VimController:
         Returns:
             True if the server is running.
         """
+        if not self._vim_bin:
+            return False
         try:
             result = subprocess.run(
                 [self._vim_bin, "--serverlist"],

@@ -117,13 +117,14 @@ class CommentExtractor:
 
         # Get change details
         change = self.client.get_change_detail(change_number)
-        change_info = self._build_change_info(change, change_number)
 
         # Get current patchset number for filtering old messages
         current_revision = change.get("current_revision", "")
         current_patchset = change.get("revisions", {}).get(
             current_revision, {}
         ).get("_number", 0)
+
+        change_info = self._build_change_info(change, change_number, current_patchset)
 
         # Get all inline comments
         raw_comments = self.client.get_comments(change_number)
@@ -166,7 +167,9 @@ class CommentExtractor:
             review_messages=review_messages,
         )
 
-    def _build_change_info(self, change: dict[str, Any], change_number: int) -> ChangeInfo:
+    def _build_change_info(
+        self, change: dict[str, Any], change_number: int, current_patchset: int = 0
+    ) -> ChangeInfo:
         """Build ChangeInfo from API response."""
         project = change.get("project", "")
         return ChangeInfo(
@@ -179,6 +182,7 @@ class CommentExtractor:
             current_revision=change.get("current_revision", ""),
             owner=Author.from_gerrit(change.get("owner", {})),
             url=self.client.format_change_url(project, change_number),
+            current_patchset=current_patchset,
         )
 
     def _parse_comments(

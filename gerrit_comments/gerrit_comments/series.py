@@ -350,6 +350,8 @@ class SeriesFinder:
             related = self._get_related_changes(tip_change)
             changes_map = self._build_commit_map(related, status_filter)
             tip_commit = self._find_tip(changes_map)
+            if not tip_commit:
+                return PatchSeries(target_change=change_number)
 
         # Step 5: Walk backwards from tip to build the chain
         chain = self._walk_chain_backwards(changes_map, tip_commit)
@@ -574,8 +576,8 @@ class SeriesFinder:
             - error_message: Error if a stale change is no longer in series, None otherwise
             - needs_reintegration: True if stale changes can be auto-reintegrated
         """
-        stale_changes = []
-        stale_info = []
+        stale_changes: list[int] = []
+        stale_info: list[StaleChangeInfo] = []
 
         for info in chain:
             rev_num = info.get('revision_number')
@@ -583,8 +585,8 @@ class SeriesFinder:
             change_num = info.get('change')
             subject = info.get('subject', '')
 
-            # Skip if revision numbers not available (shouldn't happen)
-            if rev_num is None or curr_rev_num is None:
+            # Skip if revision numbers or change number not available (shouldn't happen)
+            if rev_num is None or curr_rev_num is None or change_num is None:
                 continue
 
             # Check if this change has a newer patchset

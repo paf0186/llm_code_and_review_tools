@@ -16,7 +16,7 @@ from .session import RebaseSession, SessionManager
 class RebaseManager:
     """Manages git rebase operations for working on patches."""
 
-    def __init__(self, session_manager: SessionManager = None):
+    def __init__(self, session_manager: SessionManager | None = None):
         self.series_finder = SeriesFinder()
         self.client = GerritCommentsClient()
         self._session_mgr = session_manager or SessionManager()
@@ -325,6 +325,9 @@ class RebaseManager:
 
         # Get next stale change info
         next_stale = reint_state.current_stale
+        if next_stale is None:
+            # Shouldn't happen if has_more is True, but be safe
+            return self._complete_reintegration(session)
         next_stale_change = next_stale['change_number']
 
         # Fetch and checkout the newer patchset
@@ -618,11 +621,13 @@ class RebaseManager:
                 return False, f"Could not find local commit for change {change_number}. Make sure the patch is in your local git history."
 
             # Get current state for restoration later
-            original_head = self.get_current_commit()
-            original_branch = self.get_current_branch()
+            head = self.get_current_commit()
+            branch = self.get_current_branch()
 
-            if not original_head:
+            if not head:
                 return False, "Could not determine current commit"
+            original_head = head
+            original_branch = branch or "HEAD"
 
             series_patches = [{
                 "change_number": p.change_number,
@@ -659,6 +664,8 @@ class RebaseManager:
         )
         self.save_session(session)
 
+        # target_patch is guaranteed non-None at this point due to earlier checks
+        assert target_patch is not None
         return True, self._format_work_on_instructions(target_patch, patches, target_index)
 
     def _format_work_on_instructions(
@@ -853,12 +860,13 @@ class RebaseManager:
                 for desc in remaining:
                     change_num = desc['change_number']
                     # Get the original commit for this descendant
-                    original_commit = desc.get('commit')
-                    if not original_commit:
-                        original_commit = self._find_commit_by_change_number(change_num)
+                    commit_to_pick = desc.get('commit')
+                    if not commit_to_pick:
+                        commit_to_pick = self._find_commit_by_change_number(change_num)
 
-                    if not original_commit:
+                    if not commit_to_pick:
                         return False, f"Could not find commit for change {change_num}"
+                    original_commit: str = commit_to_pick
 
                     # Track that we're about to cherry-pick this
                     session.pending_cherry_pick = change_num
@@ -868,6 +876,8 @@ class RebaseManager:
                     try:
                         self._run_git(["cherry-pick", original_commit])
                         new_hash = self.get_current_commit()
+                        if new_hash is None:
+                            return False, f"Could not get commit hash after cherry-pick of {change_num}"
                         new_commits[change_num] = new_hash
                         session.rebased_changes.append(change_num)
                         session.pending_cherry_pick = None

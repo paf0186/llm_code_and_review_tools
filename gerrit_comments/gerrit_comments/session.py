@@ -4,11 +4,16 @@ This module handles saving, loading, and clearing rebase session state.
 """
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from .reintegration import ReintegrationState
+
+
+def _default_reintegration() -> dict[str, Any]:
+    """Create default reintegration dict."""
+    return ReintegrationState().to_dict()
 
 
 @dataclass
@@ -21,18 +26,10 @@ class RebaseSession:
     original_branch: str
     series_patches: list[dict]  # Serializable patch info
     started_at: str
-    rebased_changes: list[int] = None  # Track which changes have been rebased
-    skipped_changes: list[int] = None  # Track which changes were skipped
-    pending_cherry_pick: int = None  # Change currently being cherry-picked
-    reintegration: dict = None  # ReintegrationState as dict
-
-    def __post_init__(self):
-        if self.rebased_changes is None:
-            self.rebased_changes = []
-        if self.skipped_changes is None:
-            self.skipped_changes = []
-        if self.reintegration is None:
-            self.reintegration = ReintegrationState().to_dict()
+    rebased_changes: list[int] = field(default_factory=list)  # Track which changes have been rebased
+    skipped_changes: list[int] = field(default_factory=list)  # Track which changes were skipped
+    pending_cherry_pick: int | None = None  # Change currently being cherry-picked
+    reintegration: dict[str, Any] = field(default_factory=_default_reintegration)  # ReintegrationState as dict
 
     @property
     def reintegrating(self) -> bool:
@@ -67,7 +64,7 @@ class RebaseSession:
 class SessionManager:
     """Manages persistence of rebase sessions."""
 
-    def __init__(self, state_dir: Path = None):
+    def __init__(self, state_dir: Path | None = None):
         """Initialize the session manager.
 
         Args:

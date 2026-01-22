@@ -7,7 +7,7 @@ from typing import Any, Optional
 from urllib.parse import quote
 
 from dotenv import load_dotenv
-from pygerrit2 import GerritRestAPI, HTTPBasicAuth
+from pygerrit2 import GerritRestAPI, HTTPBasicAuth  # type: ignore[import-untyped]
 
 
 # Load .env file from standard locations (in priority order)
@@ -70,7 +70,7 @@ class GerritCommentsClient:
         self.rest.kwargs["timeout"] = 60
 
     @staticmethod
-    def parse_gerrit_url(url: str, default_base_url: str = None) -> tuple[str, int]:
+    def parse_gerrit_url(url: str, default_base_url: str | None = None) -> tuple[str, int]:
         """Parse a Gerrit URL or change number to extract base URL and change number.
 
         Supports:
@@ -211,7 +211,7 @@ class GerritCommentsClient:
         Returns:
             Response from the API
         """
-        review_input = {}
+        review_input: dict[str, Any] = {}
 
         if message:
             review_input["message"] = message

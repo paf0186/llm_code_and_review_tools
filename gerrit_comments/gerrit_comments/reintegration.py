@@ -6,8 +6,8 @@ When patches in a series have newer patchsets, we need to "reintegrate" by:
 3. Repeating for each stale patch in base-to-tip order
 """
 
-from dataclasses import asdict, dataclass
-from typing import Optional
+from dataclasses import asdict, dataclass, field
+from typing import Any, Optional
 
 from . import git_utils
 
@@ -20,11 +20,11 @@ class StaleChangeInfo:
     current_revision: int
     subject: str
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "StaleChangeInfo":
+    def from_dict(cls, data: dict[str, Any]) -> "StaleChangeInfo":
         return cls(**data)
 
 
@@ -36,25 +36,19 @@ class ReintegrationState:
     all reintegration-specific state.
     """
     active: bool = False
-    stale_changes: list[dict] = None  # List of StaleChangeInfo dicts
+    stale_changes: list[dict[str, Any]] = field(default_factory=list)  # List of StaleChangeInfo dicts
     current_stale_idx: int = 0  # Which stale change we're processing
-    pending_descendants: list[int] = None  # Descendants waiting to be cherry-picked
+    pending_descendants: list[int] = field(default_factory=list)  # Descendants waiting to be cherry-picked
 
-    def __post_init__(self):
-        if self.stale_changes is None:
-            self.stale_changes = []
-        if self.pending_descendants is None:
-            self.pending_descendants = []
-
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "ReintegrationState":
+    def from_dict(cls, data: dict[str, Any]) -> "ReintegrationState":
         return cls(**data)
 
     @property
-    def current_stale(self) -> Optional[dict]:
+    def current_stale(self) -> Optional[dict[str, Any]]:
         """Get the current stale change being processed."""
         if self.current_stale_idx < len(self.stale_changes):
             return self.stale_changes[self.current_stale_idx]
@@ -73,7 +67,7 @@ class ReintegrationManager:
     stale patches into a series. It's used by RebaseManager.
     """
 
-    def __init__(self, git_runner: git_utils.GitRunner = None):
+    def __init__(self, git_runner: git_utils.GitRunner | None = None):
         self._git = git_runner or git_utils.GitRunner()
 
     def create_state(
@@ -124,7 +118,7 @@ class ReintegrationManager:
         """
         stale_idx = None
         for idx, p in enumerate(series_patches):
-            cn = p.get('change_number') or p.change_number
+            cn = p.get('change_number') or getattr(p, 'change_number', None)
             if cn == stale_change:
                 stale_idx = idx
                 break
@@ -133,11 +127,12 @@ class ReintegrationManager:
             return []
 
         # Descendants are indices > stale_idx
-        descendants = []
+        descendants: list[int] = []
         for i in range(stale_idx + 1, len(series_patches)):
             p = series_patches[i]
-            cn = p.get('change_number') if isinstance(p, dict) else p.change_number
-            descendants.append(cn)
+            cn = p.get('change_number') if isinstance(p, dict) else getattr(p, 'change_number', None)
+            if cn is not None:
+                descendants.append(cn)
 
         return descendants
 

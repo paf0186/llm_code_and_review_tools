@@ -25,6 +25,8 @@ dev = [
     "responses>=0.23.0",
     "ruff>=0.1.0",
     "pre-commit>=3.0.0",
+    "mypy>=1.0",
+    "types-requests>=2.28.0",
 ]
 
 [project.scripts]
@@ -65,3 +67,18 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["jira_tool"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+strict_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false

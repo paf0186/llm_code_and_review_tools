@@ -160,6 +160,7 @@ class ChangeInfo:
     current_revision: str
     owner: Author
     url: str
+    current_patchset: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -172,6 +173,7 @@ class ChangeInfo:
             "current_revision": self.current_revision,
             "owner": self.owner.to_dict(),
             "url": self.url,
+            "current_patchset": self.current_patchset,
         }
 
 
