@@ -237,15 +237,19 @@ gc staged clear [change]
 
 ### Reply to Comments
 
+URL is optional for `gc reply` - it uses the last URL from `gc comments`:
+
 ```bash
-# Reply to thread 0 with message
-gc reply <URL> 0 "Fixed in next patchset"
+# First, get comments (saves URL)
+gc comments <URL>
 
-# Mark as done
-gc reply --done <URL> 0
+# Then reply without repeating URL
+gc reply 0 "Fixed in next patchset"
+gc reply --done 1
+gc reply --ack 2
 
-# Acknowledge
-gc reply --ack <URL> 1
+# Or use explicit --url to override
+gc reply 0 --done --url <URL>
 ```
 
 ### Interactive Mode
@@ -255,6 +259,19 @@ gc interactive <URL>
 # Actions: d=done, r=reply, a=ack, s=skip, q=quit, p=push
 ```
 
+### Help Commands
+
+```bash
+# Show workflow examples (quick, staging, series, reviewers, all)
+gc examples              # Quick start examples
+gc examples staging      # Staging workflow
+gc examples all          # All workflows
+
+# Detailed help for a specific command
+gc explain reply
+gc explain add-reviewer
+```
+
 ## Tips
 
 1. **Work earliest to latest** - finish-patch rebases all later patches
@@ -262,6 +279,7 @@ gc interactive <URL>
 3. **finish-patch auto-advances** - finds next patch with comments
 4. **Conflicts?** - fix, `git add`, then `finish-patch` again
 5. **Use `series-status`** before starting work on a series
+6. **URL is remembered** - after `gc comments URL`, subsequent `gc reply` commands reuse it
 
 ---
 
