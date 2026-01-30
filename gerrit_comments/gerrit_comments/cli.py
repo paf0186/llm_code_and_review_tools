@@ -55,6 +55,7 @@ from .rebase import (
 from .replier import CommentReplier
 from .reviewer import CodeReviewer
 from .series import SeriesFinder
+from .session import LastURLManager
 from .series_status import show_series_status
 from .staging import StagingManager
 from .summary import truncate_extracted_comments, truncate_review_data, truncate_series_comments
@@ -196,6 +197,9 @@ def cmd_extract(args):
             if summary_lines is not None:
                 data = truncate_extracted_comments(data, summary_lines)
 
+        # Save URL for subsequent commands (gc reply without URL)
+        LastURLManager().save(args.url)
+
         output_success(data, command, pretty)
         sys.exit(ExitCode.SUCCESS)
 
@@ -210,13 +214,24 @@ def cmd_reply(args):
     command = "reply"
     pretty = getattr(args, 'pretty', False)
 
+    # Get URL from args or last-used
+    url = getattr(args, 'url', None)
+    if not url:
+        url = LastURLManager().load()
+        if not url:
+            sys.exit(output_error(
+                ErrorCode.MISSING_REQUIRED_FIELD,
+                "No URL provided and no recent URL found. Run 'gc comments URL' first or use --url.",
+                command, pretty
+            ))
+
     try:
         # Parse URL to get change number
-        base_url, change_number = GerritCommentsClient.parse_gerrit_url(args.url)
+        base_url, change_number = GerritCommentsClient.parse_gerrit_url(url)
 
         # Extract to get the threads
         result = extract_comments(
-            url=args.url,
+            url=url,
             include_resolved=False,
             include_code_context=False,
         )
@@ -1298,6 +1313,9 @@ other commands like 'reply' or 'stage'.
 The 'reply' command posts a reply to a specific comment thread. You identify
 the thread by its index from the 'comments' output.
 
+URL is optional - if you recently ran 'gc comments URL', the URL is remembered
+and reused automatically. Use --url to override.
+
 Common patterns:
 - Use --done to mark a comment as addressed (adds "Done" and resolves)
 - Use --ack to acknowledge without action (adds "Acknowledged" and resolves)
@@ -1305,20 +1323,24 @@ Common patterns:
 """,
         "examples": [
             {
-                "command": "gc reply URL 0 \"Fixed in the latest patchset\"",
-                "description": "Reply to thread 0 with a message",
+                "command": "gc reply 0 \"Fixed in the latest patchset\"",
+                "description": "Reply to thread 0 (uses last URL from 'gc comments')",
             },
             {
-                "command": "gc reply --done URL 0",
+                "command": "gc reply 0 --done",
                 "description": "Mark thread 0 as done (resolved)",
             },
             {
-                "command": "gc reply --ack URL 2",
+                "command": "gc reply 2 --ack",
                 "description": "Acknowledge thread 2",
             },
             {
-                "command": "gc reply --resolve URL 1 \"Will fix in follow-up\"",
+                "command": "gc reply 1 \"Will fix\" --resolve",
                 "description": "Reply and resolve with custom message",
+            },
+            {
+                "command": "gc reply 0 --done --url URL",
+                "description": "Explicit URL (overrides remembered URL)",
             },
         ],
         "related": ["comments", "stage", "batch"],
@@ -1788,9 +1810,9 @@ WORKFLOW_EXAMPLES = {
         "title": "Quick Start - Single Change Review",
         "description": "The fastest way to review and reply to comments on a single change.",
         "examples": [
-            ("gc comments URL", "Get unresolved comments"),
-            ("gc reply --done URL 0", "Mark comment 0 as done"),
-            ("gc reply URL 1 \"Fixed in latest PS\"", "Reply to comment 1"),
+            ("gc comments URL", "Get unresolved comments (remembers URL)"),
+            ("gc reply 0 --done", "Mark comment 0 as done (uses remembered URL)"),
+            ("gc reply 1 \"Fixed in latest PS\"", "Reply to comment 1"),
         ],
     },
     "staging": {

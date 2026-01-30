@@ -115,3 +115,58 @@ class SessionManager:
         if self.state_file.exists():
             self.state_file.unlink()
 
+
+class LastURLManager:
+    """Manages persistence of the last-used Gerrit URL.
+
+    This allows commands like `gc reply` to omit the URL argument
+    after running `gc comments URL`, using the remembered URL instead.
+    """
+
+    def __init__(self, state_dir: Path | None = None):
+        """Initialize the last URL manager.
+
+        Args:
+            state_dir: Directory for state files. Defaults to .gerrit-comments
+                      in the current directory.
+        """
+        if state_dir is None:
+            state_dir = Path.cwd() / ".gerrit-comments"
+        self.state_dir = state_dir
+        self.state_file = state_dir / "last-url.json"
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+
+    def save(self, url: str, change_number: int | None = None) -> None:
+        """Save the last-used URL.
+
+        Args:
+            url: The Gerrit change URL
+            change_number: Optional change number (extracted from URL)
+        """
+        data = {"url": url}
+        if change_number is not None:
+            data["change_number"] = change_number
+        with open(self.state_file, 'w') as f:
+            json.dump(data, f, indent=2)
+
+    def load(self) -> str | None:
+        """Load the last-used URL.
+
+        Returns:
+            The URL string or None if not saved
+        """
+        if not self.state_file.exists():
+            return None
+
+        try:
+            with open(self.state_file) as f:
+                data = json.load(f)
+            return data.get("url")
+        except Exception:
+            return None
+
+    def clear(self) -> None:
+        """Clear the saved URL."""
+        if self.state_file.exists():
+            self.state_file.unlink()
+

@@ -60,18 +60,21 @@ def add_reply_parser(subparsers):
     parser = subparsers.add_parser(
         "reply",
         help="Reply to a comment",
-        description="Reply to a comment thread",
+        description="Reply to a comment thread. URL is optional if you recently ran 'gc comments'.",
     )
-    parser.add_argument("url", help="Gerrit change URL or number")
     parser.add_argument(
         "thread_index",
         type=int,
-        help="Thread index from 'extract' output",
+        help="Thread index from 'comments' output",
     )
     parser.add_argument(
         "message",
         nargs="?",
         help="Reply message (required unless --done or --ack)",
+    )
+    parser.add_argument(
+        "--url", "-u",
+        help="Gerrit change URL (uses last-used URL from 'gc comments' if omitted)",
     )
     parser.add_argument(
         "--done", "-d",
