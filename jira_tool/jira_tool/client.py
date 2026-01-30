@@ -1,5 +1,7 @@
 """JIRA REST API client."""
 
+import random
+import time
 from typing import Any
 from urllib.parse import urljoin
 
@@ -15,6 +17,11 @@ from .errors import (
     NotFoundError,
 )
 
+# Default retry configuration
+DEFAULT_MAX_RETRIES = 3
+DEFAULT_RETRY_BACKOFF = 1.0  # Base delay in seconds
+DEFAULT_RETRY_MAX_DELAY = 30.0  # Maximum delay between retries
+
 
 class JiraClient:
     """
@@ -24,16 +31,29 @@ class JiraClient:
     error handling and response normalization.
     """
 
-    def __init__(self, config: JiraConfig, timeout: int = 30):
+    def __init__(
+        self,
+        config: JiraConfig,
+        timeout: int = 30,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        retry_backoff: float = DEFAULT_RETRY_BACKOFF,
+        retry_max_delay: float = DEFAULT_RETRY_MAX_DELAY,
+    ):
         """
         Initialize JIRA client.
 
         Args:
             config: JIRA configuration with server URL and credentials
             timeout: Request timeout in seconds (default: 30)
+            max_retries: Maximum number of retries for transient failures (default: 3)
+            retry_backoff: Base delay for exponential backoff in seconds (default: 1.0)
+            retry_max_delay: Maximum delay between retries in seconds (default: 30.0)
         """
         self.config = config
         self.timeout = timeout
+        self.max_retries = max_retries
+        self.retry_backoff = retry_backoff
+        self.retry_max_delay = retry_max_delay
         self._session = requests.Session()
 
         # Set up authentication header
@@ -50,6 +70,49 @@ class JiraClient:
         """Build full URL for API endpoint."""
         base = f"{self.config.server}/rest/api/2/"
         return urljoin(base, endpoint.lstrip("/"))
+
+    def _calculate_retry_delay(self, attempt: int) -> float:
+        """
+        Calculate delay before next retry using exponential backoff with jitter.
+
+        Args:
+            attempt: Current attempt number (0-indexed)
+
+        Returns:
+            Delay in seconds before next retry
+        """
+        # Exponential backoff: base * 2^attempt
+        delay = self.retry_backoff * (2**attempt)
+        # Add jitter (±25%) to prevent thundering herd
+        jitter = delay * 0.25 * (2 * random.random() - 1)
+        delay += jitter
+        # Cap at max delay
+        return min(delay, self.retry_max_delay)
+
+    def _is_retryable_error(self, error: Exception) -> bool:
+        """
+        Check if an error is retryable (transient).
+
+        Args:
+            error: The exception to check
+
+        Returns:
+            True if the error is transient and should be retried
+        """
+        # Network errors are always retryable
+        if isinstance(error, NetworkError):
+            return True
+
+        # JiraToolError with certain codes are retryable
+        if isinstance(error, JiraToolError):
+            # Rate limiting
+            if error.code == ErrorCode.RATE_LIMITED:
+                return True
+            # Server errors (5xx)
+            if error.code == ErrorCode.SERVER_ERROR and error.http_status is not None:
+                return error.http_status >= 500
+
+        return False
 
     def _handle_response(self, response: requests.Response, context: str = "") -> Any:
         """
@@ -152,7 +215,10 @@ class JiraClient:
         context: str = "",
     ) -> Any:
         """
-        Make an API request with error handling.
+        Make an API request with error handling and automatic retry.
+
+        Automatically retries on transient failures (5xx, 429 rate limit,
+        timeouts, connection errors) with exponential backoff.
 
         Args:
             method: HTTP method (GET, POST, PUT, DELETE)
@@ -165,39 +231,146 @@ class JiraClient:
             Parsed JSON response
 
         Raises:
-            NetworkError: For connection/timeout issues
+            NetworkError: For connection/timeout issues (after retries exhausted)
             Various JiraToolError subclasses for API errors
         """
         url = self._build_url(endpoint)
+        last_error: Exception | None = None
 
-        try:
-            response = self._session.request(
-                method=method,
-                url=url,
-                params=params,
-                json=json_data,
-                timeout=self.timeout,
-            )
-            return self._handle_response(response, context)
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self._session.request(
+                    method=method,
+                    url=url,
+                    params=params,
+                    json=json_data,
+                    timeout=self.timeout,
+                )
+                return self._handle_response(response, context)
 
-        except requests.exceptions.Timeout as e:
-            raise NetworkError(
-                code=ErrorCode.TIMEOUT,
-                message=f"Request timed out after {self.timeout}s",
-                details={"url": url},
-            ) from e
-        except requests.exceptions.ConnectionError as e:
-            raise NetworkError(
-                code=ErrorCode.CONNECTION_ERROR,
-                message=f"Connection failed: {str(e)}",
-                details={"url": url},
-            ) from e
-        except requests.exceptions.RequestException as e:
-            raise NetworkError(
-                code=ErrorCode.CONNECTION_ERROR,
-                message=f"Request failed: {str(e)}",
-                details={"url": url},
-            ) from e
+            except requests.exceptions.Timeout as e:
+                last_error = NetworkError(
+                    code=ErrorCode.TIMEOUT,
+                    message=f"Request timed out after {self.timeout}s",
+                    details={"url": url, "attempt": attempt + 1},
+                )
+                last_error.__cause__ = e
+            except requests.exceptions.ConnectionError as e:
+                last_error = NetworkError(
+                    code=ErrorCode.CONNECTION_ERROR,
+                    message=f"Connection failed: {str(e)}",
+                    details={"url": url, "attempt": attempt + 1},
+                )
+                last_error.__cause__ = e
+            except requests.exceptions.RequestException as e:
+                last_error = NetworkError(
+                    code=ErrorCode.CONNECTION_ERROR,
+                    message=f"Request failed: {str(e)}",
+                    details={"url": url, "attempt": attempt + 1},
+                )
+                last_error.__cause__ = e
+            except (AuthError, NotFoundError, InvalidInputError):
+                # Non-retryable errors - raise immediately
+                raise
+            except JiraToolError as e:
+                last_error = e
+                if not self._is_retryable_error(e):
+                    raise
+
+            # If we have retries left, wait and try again
+            if attempt < self.max_retries:
+                delay = self._calculate_retry_delay(attempt)
+                time.sleep(delay)
+
+        # All retries exhausted, raise the last error
+        if last_error is not None:
+            raise last_error
+        # Should never reach here, but satisfy type checker
+        raise RuntimeError("Unexpected state in retry loop")
+
+    def _raw_request_with_retry(
+        self,
+        method: str,
+        url: str,
+        context: str = "",
+        **kwargs: Any,
+    ) -> requests.Response:
+        """
+        Make a raw session request with retry logic.
+
+        Used for special cases like attachment downloads that need direct
+        session access but still want retry behavior.
+
+        Args:
+            method: HTTP method
+            url: Full URL to request
+            context: Context for error messages
+            **kwargs: Additional arguments to pass to session.request
+
+        Returns:
+            Response object
+
+        Raises:
+            NetworkError: For connection/timeout issues
+            JiraToolError: For HTTP errors
+        """
+        if "timeout" not in kwargs:
+            kwargs["timeout"] = self.timeout
+
+        last_error: Exception | None = None
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self._session.request(method, url, **kwargs)
+
+                # Check for retryable HTTP errors
+                if response.status_code == 429:
+                    last_error = JiraToolError(
+                        code=ErrorCode.RATE_LIMITED,
+                        message="Rate limited by JIRA server",
+                        http_status=429,
+                    )
+                elif response.status_code >= 500:
+                    last_error = JiraToolError(
+                        code=ErrorCode.SERVER_ERROR,
+                        message=f"Server error: HTTP {response.status_code}",
+                        http_status=response.status_code,
+                    )
+                else:
+                    # Success or non-retryable error
+                    return response
+
+            except requests.exceptions.Timeout as e:
+                last_error = NetworkError(
+                    code=ErrorCode.TIMEOUT,
+                    message=f"Request timed out after {kwargs.get('timeout', self.timeout)}s",
+                    details={"url": url, "attempt": attempt + 1},
+                )
+                last_error.__cause__ = e
+            except requests.exceptions.ConnectionError as e:
+                last_error = NetworkError(
+                    code=ErrorCode.CONNECTION_ERROR,
+                    message=f"Connection failed: {str(e)}",
+                    details={"url": url, "attempt": attempt + 1},
+                )
+                last_error.__cause__ = e
+            except requests.exceptions.RequestException as e:
+                last_error = NetworkError(
+                    code=ErrorCode.CONNECTION_ERROR,
+                    message=f"Request failed: {str(e)}",
+                    details={"url": url, "attempt": attempt + 1},
+                )
+                last_error.__cause__ = e
+
+            # If we have retries left, wait and try again
+            if attempt < self.max_retries:
+                delay = self._calculate_retry_delay(attempt)
+                time.sleep(delay)
+
+        # All retries exhausted
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("Unexpected state in retry loop")
 
     # =========================================================================
     # Issue Operations
@@ -571,31 +744,19 @@ class JiraClient:
                 message="Attachment metadata missing content URL",
             )
 
-        try:
-            response = self._session.get(
-                content_url,
-                timeout=self.timeout,
-            )
-            if not response.ok:
-                raise JiraToolError(
-                    code=ErrorCode.SERVER_ERROR,
-                    message=f"Failed to download attachment: HTTP {response.status_code}",
-                    http_status=response.status_code,
-                )
-            return response.content, metadata
+        response = self._raw_request_with_retry(
+            "GET",
+            content_url,
+            context=f"download attachment {attachment_id}",
+        )
 
-        except requests.exceptions.Timeout as e:
-            raise NetworkError(
-                code=ErrorCode.TIMEOUT,
-                message=f"Attachment download timed out after {self.timeout}s",
-                details={"url": content_url},
-            ) from e
-        except requests.exceptions.RequestException as e:
-            raise NetworkError(
-                code=ErrorCode.CONNECTION_ERROR,
-                message=f"Attachment download failed: {str(e)}",
-                details={"url": content_url},
-            ) from e
+        if not response.ok:
+            raise JiraToolError(
+                code=ErrorCode.SERVER_ERROR,
+                message=f"Failed to download attachment: HTTP {response.status_code}",
+                http_status=response.status_code,
+            )
+        return response.content, metadata
 
     # =========================================================================
     # Watcher Operations
@@ -624,28 +785,17 @@ class JiraClient:
         Returns:
             Empty dict on success (JIRA returns 204)
         """
+        import json
+
         # JIRA expects the username as a raw JSON string, not an object
         url = self._build_url(f"issue/{key}/watchers")
-        try:
-            import json
-            response = self._session.post(
-                url,
-                data=json.dumps(username),
-                timeout=self.timeout,
-            )
-            return self._handle_response(response, f"add watcher {username} to {key}")
-        except requests.exceptions.Timeout as e:
-            raise NetworkError(
-                code=ErrorCode.TIMEOUT,
-                message=f"Request timed out after {self.timeout}s",
-                details={"url": url},
-            ) from e
-        except requests.exceptions.RequestException as e:
-            raise NetworkError(
-                code=ErrorCode.CONNECTION_ERROR,
-                message=f"Request failed: {str(e)}",
-                details={"url": url},
-            ) from e
+        response = self._raw_request_with_retry(
+            "POST",
+            url,
+            data=json.dumps(username),
+            context=f"add watcher {username} to {key}",
+        )
+        return self._handle_response(response, f"add watcher {username} to {key}")
 
     def remove_watcher(self, key: str, username: str) -> dict[str, Any]:
         """
@@ -698,37 +848,64 @@ class JiraClient:
             filename = os.path.basename(file_path)
 
         url = self._build_url(f"issue/{key}/attachments")
+        headers = {"X-Atlassian-Token": "no-check"}
+        last_error: Exception | None = None
 
-        try:
-            with open(file_path, "rb") as f:
-                # JIRA requires X-Atlassian-Token header for attachment uploads
-                headers = {
-                    "X-Atlassian-Token": "no-check",
-                }
-                response = self._session.post(
-                    url,
-                    files={"file": (filename, f)},
-                    headers=headers,
-                    timeout=self.timeout,
+        for attempt in range(self.max_retries + 1):
+            try:
+                # Re-open file for each attempt (file handle is consumed after POST)
+                with open(file_path, "rb") as f:
+                    response = self._session.post(
+                        url,
+                        files={"file": (filename, f)},
+                        headers=headers,
+                        timeout=self.timeout,
+                    )
+
+                # Check for retryable HTTP errors
+                if response.status_code == 429:
+                    last_error = JiraToolError(
+                        code=ErrorCode.RATE_LIMITED,
+                        message="Rate limited by JIRA server",
+                        http_status=429,
+                    )
+                elif response.status_code >= 500:
+                    last_error = JiraToolError(
+                        code=ErrorCode.SERVER_ERROR,
+                        message=f"Server error: HTTP {response.status_code}",
+                        http_status=response.status_code,
+                    )
+                else:
+                    return self._handle_response(response, f"upload to {key}")
+
+            except requests.exceptions.Timeout as e:
+                last_error = NetworkError(
+                    code=ErrorCode.TIMEOUT,
+                    message=f"Attachment upload timed out after {self.timeout}s",
+                    details={"file": file_path, "attempt": attempt + 1},
                 )
+                last_error.__cause__ = e
+            except requests.exceptions.RequestException as e:
+                last_error = NetworkError(
+                    code=ErrorCode.CONNECTION_ERROR,
+                    message=f"Attachment upload failed: {str(e)}",
+                    details={"file": file_path, "attempt": attempt + 1},
+                )
+                last_error.__cause__ = e
+            except OSError as e:
+                # File read errors are not retryable
+                raise InvalidInputError(
+                    code=ErrorCode.INVALID_INPUT,
+                    message=f"Cannot read file: {e}",
+                    details={"file": file_path},
+                ) from e
 
-            return self._handle_response(response, f"upload to {key}")
+            # If we have retries left, wait and try again
+            if attempt < self.max_retries:
+                delay = self._calculate_retry_delay(attempt)
+                time.sleep(delay)
 
-        except requests.exceptions.Timeout as e:
-            raise NetworkError(
-                code=ErrorCode.TIMEOUT,
-                message=f"Attachment upload timed out after {self.timeout}s",
-                details={"file": file_path},
-            ) from e
-        except requests.exceptions.RequestException as e:
-            raise NetworkError(
-                code=ErrorCode.CONNECTION_ERROR,
-                message=f"Attachment upload failed: {str(e)}",
-                details={"file": file_path},
-            ) from e
-        except OSError as e:
-            raise InvalidInputError(
-                code=ErrorCode.INVALID_INPUT,
-                message=f"Cannot read file: {e}",
-                details={"file": file_path},
-            ) from e
+        # All retries exhausted
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("Unexpected state in retry loop")

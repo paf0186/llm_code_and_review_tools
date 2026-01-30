@@ -1,9 +1,16 @@
 """Unit tests for JIRA client."""
 
+from unittest.mock import patch
+
 import pytest
 import responses
 
-from jira_tool.client import JiraClient
+from jira_tool.client import (
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_RETRY_BACKOFF,
+    DEFAULT_RETRY_MAX_DELAY,
+    JiraClient,
+)
 from jira_tool.config import JiraConfig
 from jira_tool.errors import (
     AuthError,
@@ -747,3 +754,314 @@ class TestRemoveWatcher:
 
         url = responses.calls[0].request.url
         assert "username=jdoe" in url
+
+
+class TestRetryConfiguration:
+    """Tests for retry configuration."""
+
+    def test_default_retry_settings(self, config):
+        """Should have default retry settings."""
+        client = JiraClient(config)
+        assert client.max_retries == DEFAULT_MAX_RETRIES
+        assert client.retry_backoff == DEFAULT_RETRY_BACKOFF
+        assert client.retry_max_delay == DEFAULT_RETRY_MAX_DELAY
+
+    def test_custom_retry_settings(self, config):
+        """Should accept custom retry settings."""
+        client = JiraClient(
+            config,
+            max_retries=5,
+            retry_backoff=2.0,
+            retry_max_delay=60.0,
+        )
+        assert client.max_retries == 5
+        assert client.retry_backoff == 2.0
+        assert client.retry_max_delay == 60.0
+
+    def test_disable_retries(self, config):
+        """Should allow disabling retries."""
+        client = JiraClient(config, max_retries=0)
+        assert client.max_retries == 0
+
+
+class TestRetryOnTransientErrors:
+    """Tests for retry behavior on transient errors."""
+
+    @responses.activate
+    @patch("time.sleep")
+    def test_retry_on_500_then_success(self, mock_sleep, config):
+        """Should retry on 500 and succeed."""
+        client = JiraClient(config, max_retries=2, retry_backoff=0.1)
+
+        # First call fails with 500
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123",
+            json={"errorMessages": ["Internal error"]},
+            status=500,
+        )
+        # Second call succeeds
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123",
+            json={"key": "PROJ-123"},
+            status=200,
+        )
+
+        result = client.get_issue("PROJ-123")
+        assert result["key"] == "PROJ-123"
+        assert len(responses.calls) == 2
+        assert mock_sleep.called
+
+    @responses.activate
+    @patch("time.sleep")
+    def test_retry_on_429_rate_limit(self, mock_sleep, config):
+        """Should retry on rate limiting."""
+        client = JiraClient(config, max_retries=2, retry_backoff=0.1)
+
+        # First call fails with rate limit
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123",
+            status=429,
+        )
+        # Second call succeeds
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123",
+            json={"key": "PROJ-123"},
+            status=200,
+        )
+
+        result = client.get_issue("PROJ-123")
+        assert result["key"] == "PROJ-123"
+        assert len(responses.calls) == 2
+
+    @responses.activate
+    @patch("time.sleep")
+    def test_retry_on_timeout(self, mock_sleep, config):
+        """Should retry on timeout."""
+        import requests.exceptions
+
+        client = JiraClient(config, max_retries=2, retry_backoff=0.1)
+
+        # First call times out
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123",
+            body=requests.exceptions.Timeout("Timeout"),
+        )
+        # Second call succeeds
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123",
+            json={"key": "PROJ-123"},
+            status=200,
+        )
+
+        result = client.get_issue("PROJ-123")
+        assert result["key"] == "PROJ-123"
+        assert len(responses.calls) == 2
+
+    @responses.activate
+    @patch("time.sleep")
+    def test_retry_on_connection_error(self, mock_sleep, config):
+        """Should retry on connection error."""
+        import requests.exceptions
+
+        client = JiraClient(config, max_retries=2, retry_backoff=0.1)
+
+        # First call fails with connection error
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123",
+            body=requests.exceptions.ConnectionError("Connection refused"),
+        )
+        # Second call succeeds
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123",
+            json={"key": "PROJ-123"},
+            status=200,
+        )
+
+        result = client.get_issue("PROJ-123")
+        assert result["key"] == "PROJ-123"
+        assert len(responses.calls) == 2
+
+    @responses.activate
+    @patch("time.sleep")
+    def test_exhausted_retries_raises(self, mock_sleep, config):
+        """Should raise after exhausting retries."""
+        client = JiraClient(config, max_retries=2, retry_backoff=0.1)
+
+        # All calls fail with 500
+        for _ in range(3):  # Initial + 2 retries
+            responses.add(
+                responses.GET,
+                "https://jira.example.com/rest/api/2/issue/PROJ-123",
+                json={"errorMessages": ["Internal error"]},
+                status=500,
+            )
+
+        with pytest.raises(JiraToolError) as exc_info:
+            client.get_issue("PROJ-123")
+        assert exc_info.value.code == ErrorCode.SERVER_ERROR
+        assert len(responses.calls) == 3  # Initial + 2 retries
+
+
+class TestNoRetryOnPermanentErrors:
+    """Tests that permanent errors are not retried."""
+
+    @responses.activate
+    def test_no_retry_on_401(self, config):
+        """Should not retry on auth failure."""
+        client = JiraClient(config, max_retries=3)
+
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123",
+            status=401,
+        )
+
+        with pytest.raises(AuthError):
+            client.get_issue("PROJ-123")
+        assert len(responses.calls) == 1  # No retries
+
+    @responses.activate
+    def test_no_retry_on_403(self, config):
+        """Should not retry on forbidden."""
+        client = JiraClient(config, max_retries=3)
+
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123",
+            status=403,
+        )
+
+        with pytest.raises(AuthError):
+            client.get_issue("PROJ-123")
+        assert len(responses.calls) == 1
+
+    @responses.activate
+    def test_no_retry_on_404(self, config):
+        """Should not retry on not found."""
+        client = JiraClient(config, max_retries=3)
+
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123",
+            status=404,
+        )
+
+        with pytest.raises(NotFoundError):
+            client.get_issue("PROJ-123")
+        assert len(responses.calls) == 1
+
+    @responses.activate
+    def test_no_retry_on_400(self, config):
+        """Should not retry on bad request."""
+        client = JiraClient(config, max_retries=3)
+
+        responses.add(
+            responses.POST,
+            "https://jira.example.com/rest/api/2/search",
+            json={"errorMessages": ["Bad JQL"]},
+            status=400,
+        )
+
+        with pytest.raises(InvalidInputError):
+            client.search_issues("bad jql")
+        assert len(responses.calls) == 1
+
+
+class TestRetryBackoff:
+    """Tests for retry backoff calculation."""
+
+    def test_exponential_backoff(self, config):
+        """Should use exponential backoff."""
+        client = JiraClient(config, retry_backoff=1.0, retry_max_delay=100.0)
+
+        # With jitter disabled (mocked), delays should be approximately:
+        # attempt 0: 1.0 * 2^0 = 1.0
+        # attempt 1: 1.0 * 2^1 = 2.0
+        # attempt 2: 1.0 * 2^2 = 4.0
+        with patch("random.random", return_value=0.5):  # No jitter (centered)
+            delay0 = client._calculate_retry_delay(0)
+            delay1 = client._calculate_retry_delay(1)
+            delay2 = client._calculate_retry_delay(2)
+
+        assert 0.75 <= delay0 <= 1.25  # ~1.0 with some jitter tolerance
+        assert 1.5 <= delay1 <= 2.5  # ~2.0
+        assert 3.0 <= delay2 <= 5.0  # ~4.0
+
+    def test_max_delay_cap(self, config):
+        """Should cap delay at max_delay."""
+        client = JiraClient(config, retry_backoff=10.0, retry_max_delay=5.0)
+
+        # Even with high backoff, should be capped
+        delay = client._calculate_retry_delay(10)  # Would be 10 * 2^10 = 10240
+        assert delay <= 5.0
+
+
+class TestRetryWithAttachments:
+    """Tests for retry with attachment operations."""
+
+    @responses.activate
+    @patch("time.sleep")
+    def test_attachment_download_retry(self, mock_sleep, config):
+        """Should retry attachment download on transient errors."""
+        client = JiraClient(config, max_retries=2, retry_backoff=0.1)
+
+        # Metadata call succeeds
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/attachment/123",
+            json={
+                "id": "123",
+                "filename": "test.txt",
+                "size": 10,
+                "content": "https://jira.example.com/secure/attachment/123/test.txt",
+            },
+            status=200,
+        )
+        # First download fails with 500
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/secure/attachment/123/test.txt",
+            status=500,
+        )
+        # Second download succeeds
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/secure/attachment/123/test.txt",
+            body=b"test content",
+            status=200,
+        )
+
+        content, metadata = client.get_attachment_content("123")
+        assert content == b"test content"
+        assert len(responses.calls) == 3  # metadata + 2 download attempts
+
+    @responses.activate
+    @patch("time.sleep")
+    def test_add_watcher_retry(self, mock_sleep, config):
+        """Should retry add_watcher on transient errors."""
+        client = JiraClient(config, max_retries=2, retry_backoff=0.1)
+
+        # First call fails with 500
+        responses.add(
+            responses.POST,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123/watchers",
+            status=500,
+        )
+        # Second call succeeds
+        responses.add(
+            responses.POST,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123/watchers",
+            status=204,
+        )
+
+        result = client.add_watcher("PROJ-123", "jdoe")
+        assert result == {}
+        assert len(responses.calls) == 2
