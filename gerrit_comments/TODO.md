@@ -74,7 +74,7 @@ Legend:
 - Supports both text (ASCII table) and JSON output formats
 - Added `series-status` CLI command with `--json` flag
 - Comprehensive test coverage: 19 tests in `test_series_status.py`
-- Documentation added to skills.md
+- Documentation added to SKILLS.md
 
 ---
 
@@ -325,7 +325,7 @@ gerrit-comments finish-patch
   - `status` - Check current session status
 - Git integration: checks repo state, manages git checkout/rebase operations
 - Shows all comments for the target patch when starting
-- Clear agent instructions in skills.md with detailed workflow examples
+- Clear agent instructions in SKILLS.md with detailed workflow examples
 - Comprehensive tests: 52 tests in `test_rebase.py`
 
 **Note:** Interactive UI integration (`[e]dit` action in interactive mode) is not yet implemented. Current implementation focuses on agent-oriented workflow which can be used standalone.

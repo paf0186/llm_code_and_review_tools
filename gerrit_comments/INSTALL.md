@@ -103,7 +103,7 @@ Add these to your `~/.bashrc` or `~/.zshrc` to make them permanent.
 
 ## Documentation
 
-- Quick reference: [skills.md](skills.md) - Agent skill description with command examples
+- Quick reference: [SKILLS.md](SKILLS.md) - Agent skill description with command examples
 - Full documentation: [README.md](README.md) - Complete API and usage guide
 
 ## Troubleshooting

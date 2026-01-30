@@ -55,10 +55,12 @@ gerrit-comments series https://review.example.com/c/project/+/12345
 
 ## Documentation
 
-Each tool has its own documentation:
+- **[AGENTS.md](AGENTS.md)** - Combined guide for AI agents (recommended starting point)
+
+Per-tool documentation:
 
 - **JIRA Tool**: [README](jira_tool/README.md) | [Architecture](jira_tool/ARCHITECTURE.md) | [Skills](jira_tool/SKILLS.md)
-- **Gerrit Comments**: [README](gerrit_comments/README.md) | [Architecture](gerrit_comments/architecture.md) | [Skills](gerrit_comments/skills.md)
+- **Gerrit Comments**: [README](gerrit_comments/README.md) | [Architecture](gerrit_comments/ARCHITECTURE.md) | [Skills](gerrit_comments/SKILLS.md)
 
 ## Output Format
 

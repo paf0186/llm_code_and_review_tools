@@ -1,14 +1,14 @@
 #!/bin/bash
 #
 # Installation script for gerrit-comments tool
-# This script installs the gerrit-comments CLI tool so it can be used as described in skills.md
+# This script installs the gerrit-comments CLI tool so it can be used as described in SKILLS.md
 #
 
 set -e  # Exit on error
 
 # Parse command line arguments
 CLEAN_INSTALL=false
-COPY_SKILLS=true  # Default to copying skills.md
+COPY_SKILLS=true  # Default to copying SKILLS.md
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -47,7 +47,7 @@ if [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]; then
     echo ""
     echo "Options:"
     echo "  --clean, -c       Clean build artifacts before installing"
-    echo "  --no-copy-skills  Skip copying skills.md to checkout directories"
+    echo "  --no-copy-skills  Skip copying SKILLS.md to checkout directories"
     echo "  --help, -h        Show this help message"
     echo ""
     exit 0
@@ -268,17 +268,17 @@ echo ""
 echo "For full documentation, see GERRIT_COMMENTS_README.md"
 echo ""
 
-# Copy skills.md to source directories if requested
+# Copy SKILLS.md to source directories if requested
 if [ "$COPY_SKILLS" = true ]; then
     echo ""
     echo "================================================"
-    echo "Copying skills.md to Source Directories"
+    echo "Copying SKILLS.md to Source Directories"
     echo "================================================"
     echo ""
 
-    SKILLS_FILE="$SCRIPT_DIR/skills.md"
+    SKILLS_FILE="$SCRIPT_DIR/SKILLS.md"
     if [ ! -f "$SKILLS_FILE" ]; then
-        echo -e "${RED}✗ skills.md not found in $SCRIPT_DIR${NC}"
+        echo -e "${RED}✗ SKILLS.md not found in $SCRIPT_DIR${NC}"
     else
         COPIED_COUNT=0
         FAILED_COUNT=0
@@ -288,7 +288,7 @@ if [ "$COPY_SKILLS" = true ]; then
             echo "Copying to /shared/master_checkouts/ directories..."
             for dir in /shared/master_checkouts/*/; do
                 if [ -d "$dir" ]; then
-                    TARGET="$dir/skills.md"
+                    TARGET="$dir/SKILLS.md"
                     if cp "$SKILLS_FILE" "$TARGET" 2>/dev/null; then
                         echo "  ✓ $(basename "$dir")"
                         COPIED_COUNT=$((COPIED_COUNT + 1))
@@ -305,7 +305,7 @@ if [ "$COPY_SKILLS" = true ]; then
             echo "Copying to /shared/ddn_checkouts/ directories..."
             for dir in /shared/ddn_checkouts/*/; do
                 if [ -d "$dir" ]; then
-                    TARGET="$dir/skills.md"
+                    TARGET="$dir/SKILLS.md"
                     if cp "$SKILLS_FILE" "$TARGET" 2>/dev/null; then
                         echo "  ✓ $(basename "$dir")"
                         COPIED_COUNT=$((COPIED_COUNT + 1))
@@ -319,7 +319,7 @@ if [ "$COPY_SKILLS" = true ]; then
 
         echo ""
         if [ $COPIED_COUNT -gt 0 ]; then
-            echo -e "${GREEN}✓ Copied skills.md to $COPIED_COUNT director(ies)${NC}"
+            echo -e "${GREEN}✓ Copied SKILLS.md to $COPIED_COUNT director(ies)${NC}"
         fi
         if [ $FAILED_COUNT -gt 0 ]; then
             echo -e "${YELLOW}⚠ Failed to copy to $FAILED_COUNT director(ies)${NC}"
