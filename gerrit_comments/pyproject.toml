@@ -45,6 +45,7 @@ dev = [
 
 [project.scripts]
 gerrit-comments = "gerrit_comments.cli:main"
+gc = "gerrit_comments.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/anthropics/claude-code"

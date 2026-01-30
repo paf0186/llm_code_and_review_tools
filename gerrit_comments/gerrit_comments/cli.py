@@ -770,6 +770,9 @@ def main():
 
     # Map command names to handler functions
     handlers = {
+        'extract': cmd_extract,
+        'reply': cmd_reply,
+        'batch': cmd_batch_reply,
         'review': cmd_review,
         'series_comments': cmd_series_comments,
         'series': cmd_series,

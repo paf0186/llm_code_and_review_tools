@@ -501,6 +501,11 @@ def setup_parsers(subparsers, handlers):
     Returns:
         None - parsers are added to subparsers in-place
     """
+    # Core comment commands
+    add_extract_parser(subparsers).set_defaults(func=handlers['extract'])
+    add_reply_parser(subparsers).set_defaults(func=handlers['reply'])
+    add_batch_parser(subparsers).set_defaults(func=handlers['batch'])
+
     # Main entry points
     add_review_series_parser(subparsers).set_defaults(func=handlers['series'])
     add_review_parser(subparsers).set_defaults(func=handlers['review'])
