@@ -15,14 +15,14 @@ def _load_env_file():
     """Load environment variables from .env file in standard locations.
 
     Priority order:
-    1. User config directory (~/.config/gerrit-comments/.env)
-    2. System config directory (/etc/gerrit-comments/.env)
-    3. Current directory (.env) - for development
+    1. Current directory (.env) - allows project-specific overrides
+    2. User config directory (~/.config/gerrit-comments/.env)
+    3. System config directory (/etc/gerrit-comments/.env)
     """
     env_locations = [
+        Path.cwd() / ".env",
         Path.home() / ".config" / "gerrit-comments" / ".env",
         Path("/etc/gerrit-comments/.env"),
-        Path(".env"),
     ]
 
     for env_path in env_locations:
@@ -30,19 +30,20 @@ def _load_env_file():
             load_dotenv(env_path)
             return
 
-    # No .env file found, will use environment variables or defaults
+    # No .env file found, will use environment variables only
 
 
 # Load .env file when module is imported
 _load_env_file()
 
 
-# Default credentials (fallback if no .env or environment variables)
-# NOTE: These are deprecated and will be removed in a future version.
-# Please use .env file or environment variables instead.
-DEFAULT_GERRIT_URL = "https://review.whamcloud.com"
-DEFAULT_GERRIT_USER = "pfarrell2"
-DEFAULT_GERRIT_PASS = "GW77at9R1j3oH2aq9saO6OACD8LXNY2NaiRckJH7UQ"
+# Config file location for error messages
+CONFIG_PATH = Path.home() / ".config" / "gerrit-comments" / ".env"
+
+
+class GerritConfigError(Exception):
+    """Raised when Gerrit credentials are not configured."""
+    pass
 
 
 class GerritCommentsClient:
@@ -57,13 +58,31 @@ class GerritCommentsClient:
         """Initialize the Gerrit client.
 
         Args:
-            url: Gerrit server URL. Defaults to env var or built-in default.
-            username: Gerrit username. Defaults to env var or built-in default.
-            password: Gerrit HTTP password. Defaults to env var or built-in default.
+            url: Gerrit server URL. Defaults to GERRIT_URL env var.
+            username: Gerrit username. Defaults to GERRIT_USER env var.
+            password: Gerrit HTTP password. Defaults to GERRIT_PASS env var.
+
+        Raises:
+            GerritConfigError: If required credentials are not configured.
         """
-        self.url = url or os.environ.get("GERRIT_URL", DEFAULT_GERRIT_URL)
-        self.username = username or os.environ.get("GERRIT_USER", DEFAULT_GERRIT_USER)
-        self.password = password or os.environ.get("GERRIT_PASS", DEFAULT_GERRIT_PASS)
+        self.url = url or os.environ.get("GERRIT_URL")
+        self.username = username or os.environ.get("GERRIT_USER")
+        self.password = password or os.environ.get("GERRIT_PASS")
+
+        # Check for missing configuration
+        missing = []
+        if not self.url:
+            missing.append("GERRIT_URL")
+        if not self.username:
+            missing.append("GERRIT_USER")
+        if not self.password:
+            missing.append("GERRIT_PASS")
+
+        if missing:
+            raise GerritConfigError(
+                f"Missing configuration: {', '.join(missing)}. "
+                f"Set environment variables or create config file at {CONFIG_PATH}"
+            )
 
         auth = HTTPBasicAuth(self.username, self.password)
         self.rest = GerritRestAPI(url=self.url, auth=auth)

@@ -57,7 +57,7 @@ Example usage:
         print(f"  {patch.change_number}: {patch.subject}")
 """
 
-from .client import GerritCommentsClient
+from .client import GerritCommentsClient, GerritConfigError
 from .envelope import (
     error_response,
     error_response_from_dict,
