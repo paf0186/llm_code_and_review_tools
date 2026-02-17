@@ -1255,6 +1255,54 @@ def cmd_remove_reviewer(args):
         sys.exit(output_error(ErrorCode.API_ERROR, str(e), command, pretty))
 
 
+def cmd_abandon(args):
+    """Abandon a Gerrit change."""
+    command = "abandon"
+    pretty = getattr(args, 'pretty', False)
+
+    try:
+        base_url, change_number = GerritCommentsClient.parse_gerrit_url(args.url)
+        client = GerritCommentsClient()
+
+        message = getattr(args, 'message', '') or ''
+
+        # Handle dry-run mode
+        dry_run = getattr(args, 'dry_run', False)
+        if dry_run:
+            data = {
+                "dry_run": True,
+                "change_number": change_number,
+                "would_abandon": True,
+                "message": message or "(no message)",
+            }
+            output_success(data, command, pretty)
+            sys.exit(ExitCode.SUCCESS)
+
+        result = client.abandon_change(change_number, message=message)
+
+        data = {
+            "success": True,
+            "change_number": change_number,
+            "status": result.get("status", "ABANDONED"),
+            "subject": result.get("subject", ""),
+        }
+
+        output_success(data, command, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except ValueError as e:
+        sys.exit(output_error(ErrorCode.INVALID_INPUT, str(e), command, pretty))
+    except Exception as e:
+        error_str = str(e)
+        if "409" in error_str:
+            sys.exit(output_error(
+                ErrorCode.API_ERROR,
+                f"Change {change_number} cannot be abandoned (may already be abandoned or merged)",
+                command, pretty
+            ))
+        sys.exit(output_error(ErrorCode.API_ERROR, str(e), command, pretty))
+
+
 def cmd_find_user(args):
     """Search for users by name."""
     command = "find-user"
@@ -2004,6 +2052,7 @@ def main():
         'add_reviewer': cmd_add_reviewer,
         'remove_reviewer': cmd_remove_reviewer,
         'find_user': cmd_find_user,
+        'abandon': cmd_abandon,
         'explain': cmd_explain,
         'examples': cmd_examples,
         'done': cmd_done,

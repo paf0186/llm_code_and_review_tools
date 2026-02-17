@@ -23,6 +23,7 @@ def _load_env_file():
         Path.cwd() / ".env",
         Path.home() / ".config" / "gerrit-comments" / ".env",
         Path("/etc/gerrit-comments/.env"),
+        Path("/shared/support_files/.env"),
     ]
 
     for env_path in env_locations:
@@ -380,6 +381,175 @@ class GerritCommentsClient:
             reviewer: Account ID, email, or username of the reviewer
         """
         self.rest.delete(f"/changes/{change_number}/reviewers/{reviewer}")
+
+    def abandon_change(
+        self,
+        change_number: int,
+        message: str = "",
+    ) -> dict[str, Any]:
+        """Abandon a Gerrit change.
+
+        Tries REST API first, falls back to SSH if REST returns 401.
+
+        Args:
+            change_number: The change number
+            message: Optional message explaining why
+
+        Returns:
+            Response from the API (change info)
+        """
+        body: dict[str, Any] = {}
+        if message:
+            body["message"] = message
+        try:
+            return self.rest.post(
+                f"/changes/{change_number}/abandon",
+                json=body,
+            )
+        except Exception as e:
+            if "401" not in str(e):
+                raise
+            # REST 401 — fall back to SSH
+            return self._abandon_via_ssh(change_number, message)
+
+    def _abandon_via_ssh(
+        self,
+        change_number: int,
+        message: str = "",
+    ) -> dict[str, Any]:
+        """Abandon a change via Gerrit SSH interface.
+
+        Used as fallback when REST API returns 401.
+        Discovers SSH user from GERRIT_SSH_USER env var,
+        git remote URL, or GERRIT_USER.
+
+        Args:
+            change_number: The change number
+            message: Optional message explaining why
+
+        Returns:
+            Dict with change_number and status
+        """
+        import subprocess
+        from urllib.parse import urlparse
+
+        parsed = urlparse(self.url)
+        host = parsed.hostname
+        ssh_port = os.environ.get("GERRIT_SSH_PORT", "29418")
+        ssh_user = os.environ.get("GERRIT_SSH_USER", "")
+
+        if not ssh_user:
+            ssh_user = self._discover_ssh_user(host)
+
+        if not ssh_user:
+            raise Exception(
+                "Cannot determine SSH user for Gerrit. "
+                "Set GERRIT_SSH_USER env var or configure "
+                "a git remote pointing to Gerrit."
+            )
+
+        cmd = [
+            "ssh", "-p", ssh_port,
+            f"{ssh_user}@{host}",
+            "gerrit", "review", "--abandon",
+        ]
+        if message:
+            cmd.extend(["--message", f'"{message}"'])
+        cmd.append(f"{change_number},1")
+
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr.decode().strip()
+            raise Exception(
+                f"SSH abandon failed for {change_number}: {stderr}"
+            )
+        return {
+            "status": "ABANDONED",
+            "_number": change_number,
+        }
+
+    @staticmethod
+    def _discover_ssh_user(host: str) -> str:
+        """Try to find SSH username for Gerrit.
+
+        Checks in order:
+        1. Git remote URLs with ssh://user@host
+        2. Shell alias definitions (gitpush* aliases)
+        3. User config .env file (not cwd .env which
+           may be a template)
+
+        Args:
+            host: Gerrit hostname to match against
+
+        Returns:
+            Username string, or empty string if not found
+        """
+        import subprocess
+
+        # 1. Check git remotes
+        try:
+            result = subprocess.run(
+                ["git", "remote", "-v"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                for line in result.stdout.decode().splitlines():
+                    if host in line and "ssh://" in line:
+                        match = re.match(
+                            r".*ssh://([^@]+)@"
+                            + re.escape(host),
+                            line,
+                        )
+                        if match:
+                            return match.group(1)
+        except Exception:
+            pass
+
+        # 2. Check shell aliases (bash)
+        try:
+            result = subprocess.run(
+                ["bash", "-ic", "alias"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                for line in result.stdout.decode().splitlines():
+                    if host in line and "ssh://" in line:
+                        match = re.search(
+                            r"ssh://([^@]+)@"
+                            + re.escape(host),
+                            line,
+                        )
+                        if match:
+                            return match.group(1)
+        except Exception:
+            pass
+
+        # 3. Check user config .env directly
+        user_env = (
+            Path.home() / ".config"
+            / "gerrit-comments" / ".env"
+        )
+        if user_env.exists():
+            try:
+                for line in user_env.read_text().splitlines():
+                    line = line.strip()
+                    if line.startswith("GERRIT_USER="):
+                        val = line.split("=", 1)[1].strip()
+                        if val and val != "your-username":
+                            return val
+            except Exception:
+                pass
+
+        return ""
 
     def suggest_accounts(
         self,

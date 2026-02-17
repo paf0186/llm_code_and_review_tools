@@ -622,6 +622,33 @@ def add_remove_reviewer_parser(subparsers):
     return parser
 
 
+def add_abandon_parser(subparsers):
+    """Add the 'abandon' subcommand parser."""
+    parser = subparsers.add_parser(
+        "abandon",
+        help="Abandon a Gerrit change",
+        description="Abandon a Gerrit change with an optional message.",
+    )
+    parser.add_argument("url", help="Gerrit change URL or number")
+    parser.add_argument(
+        "message",
+        nargs="?",
+        default="",
+        help="Optional message explaining why (default: none)",
+    )
+    parser.add_argument(
+        "--dry-run", "-n",
+        action="store_true",
+        help="Show what would be abandoned without actually doing it",
+    )
+    parser.add_argument(
+        "--pretty", "-p",
+        action="store_true",
+        help="Pretty-print JSON output",
+    )
+    return parser
+
+
 def add_find_user_parser(subparsers):
     """Add the 'find-user' subcommand parser."""
     parser = subparsers.add_parser(
@@ -816,6 +843,7 @@ def setup_parsers(subparsers, handlers):
     add_remove_reviewer_parser(subparsers).set_defaults(
         func=handlers['remove_reviewer'])
     add_find_user_parser(subparsers).set_defaults(func=handlers['find_user'])
+    add_abandon_parser(subparsers).set_defaults(func=handlers['abandon'])
 
     # Help/documentation commands
     add_explain_parser(subparsers).set_defaults(func=handlers['explain'])
