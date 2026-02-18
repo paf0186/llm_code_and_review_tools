@@ -25,6 +25,7 @@ def _load_env_file() -> None:
     env_locations = [
         Path.home() / ".config" / "jira-tool" / ".env",
         Path("/etc/jira-tool/.env"),
+        Path("/shared/support_files/.env"),
         Path(".env"),
     ]
 

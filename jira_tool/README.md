@@ -27,25 +27,28 @@ Or use command-line options: `--server` and `--token`
 
 ```bash
 # Get issue details
-jira issue get PROJ-123
+jira get PROJ-123
+
+# Get issue with comments inline
+jira get PROJ-123 --comments
 
 # Search issues
-jira issue search "project = PROJ AND status = Open"
+jira search "project = PROJ AND status = Open"
 
 # Read comments (with pagination)
-jira issue comments PROJ-123 --limit 5
+jira comments PROJ-123 --limit 5
 
 # List attachments
-jira issue attachments PROJ-123
+jira attachments PROJ-123
 
 # Check available transitions
-jira issue transitions PROJ-123
+jira transitions PROJ-123
 
 # Add a comment
-jira issue comment PROJ-123 "My comment text"
+jira comment PROJ-123 "My comment text"
 
 # Create an issue
-jira issue create --project PROJ --type Bug --summary "Bug title"
+jira create --project PROJ --type Bug --summary "Bug title"
 ```
 
 ## Output Format
@@ -58,13 +61,14 @@ All commands return JSON with a consistent envelope:
   "data": { ... },
   "meta": {
     "tool": "jira",
-    "command": "issue.get",
+    "command": "get",
     "timestamp": "2024-01-15T10:30:00Z"
   }
 }
 ```
 
-Use `--pretty` for human-readable formatted output.
+Use `--pretty` for human-readable formatted output. It works in any position:
+`jira --pretty get KEY` or `jira get KEY --pretty`.
 
 ## Commands
 
@@ -72,14 +76,14 @@ Use `--pretty` for human-readable formatted output.
 
 | Command | Description |
 |---------|-------------|
-| `jira issue get <key>` | Get issue details |
-| `jira issue comments <key>` | Get comments with pagination |
-| `jira issue attachments <key>` | List attachments |
-| `jira issue search <jql>` | Search with JQL |
-| `jira issue create` | Create a new issue |
-| `jira issue comment <key> <body>` | Add a comment |
-| `jira issue transitions <key>` | List available transitions |
-| `jira issue transition <key> <id>` | Transition to new state |
+| `jira get <key>` | Get issue details (add `--comments` to inline comments) |
+| `jira comments <key>` | Get comments with pagination |
+| `jira attachments <key>` | List attachments |
+| `jira search <jql>` | Search with JQL |
+| `jira create` | Create a new issue |
+| `jira comment <key> <body>` | Add a comment |
+| `jira transitions <key>` | List available transitions |
+| `jira transition <key> <id>` | Transition to new state |
 
 ### Attachment Operations
 
@@ -101,7 +105,7 @@ Built-in protections for LLM context windows:
 
 - **Comments**: Default limit of 5, use `--limit N` for more
 - **Attachments**: Default 100KB limit, use `--max-size N` to override
-- **Search**: Default 10 results, use `--limit N` for more
+- **Search**: Default 20 results, use `--limit N` for more
 
 ## Documentation
 
@@ -124,4 +128,3 @@ ruff check jira_tool/ tests/
 ## License
 
 MIT
-

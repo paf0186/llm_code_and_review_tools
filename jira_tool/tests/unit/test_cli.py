@@ -212,7 +212,7 @@ class TestNormalizeComments:
 
 
 class TestCLIIssueGet:
-    """Tests for 'jira issue get' command."""
+    """Tests for 'jira get' command."""
 
     @responses.activate
     def test_issue_get_success(self, runner, mock_env):
@@ -230,13 +230,13 @@ class TestCLIIssueGet:
             status=200,
         )
 
-        result = runner.invoke(main, ["issue", "get", "PROJ-123"])
+        result = runner.invoke(main, ["get","PROJ-123"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
         assert data["data"]["key"] == "PROJ-123"
-        assert data["meta"]["command"] == "issue.get"
+        assert data["meta"]["command"] == "get"
 
     @responses.activate
     def test_issue_get_not_found(self, runner, mock_env):
@@ -248,7 +248,7 @@ class TestCLIIssueGet:
             status=404,
         )
 
-        result = runner.invoke(main, ["issue", "get", "PROJ-999"])
+        result = runner.invoke(main, ["get","PROJ-999"])
 
         assert result.exit_code == 3  # NOT_FOUND
         data = json.loads(result.output)
@@ -265,7 +265,7 @@ class TestCLIIssueGet:
             status=200,
         )
 
-        result = runner.invoke(main, ["--pretty", "issue", "get", "PROJ-123"])
+        result = runner.invoke(main, ["--pretty", "get", "PROJ-123"])
 
         assert result.exit_code == 0
         assert "\n" in result.output
@@ -284,7 +284,7 @@ class TestCLIIssueGet:
             status=200,
         )
 
-        result = runner.invoke(main, ["issue", "get", "PROJ-123", "--output", "key"])
+        result = runner.invoke(main, ["get","PROJ-123", "--output", "key"])
         assert result.exit_code == 0
         assert result.output.strip() == "PROJ-123"
         # Should not be JSON
@@ -303,13 +303,83 @@ class TestCLIIssueGet:
             status=200,
         )
 
-        result = runner.invoke(main, ["issue", "get", "PROJ-123", "--output", "status"])
+        result = runner.invoke(main, ["get","PROJ-123", "--output", "status"])
         assert result.exit_code == 0
         assert result.output.strip() == "In Progress"
 
 
+class TestCLIIssueGetWithComments:
+    """Tests for 'jira get --comments' flag."""
+
+    @responses.activate
+    def test_get_with_comments_flag(self, runner, mock_env):
+        """Should include comments when --comments is used."""
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123",
+            json={
+                "key": "PROJ-123",
+                "fields": {"summary": "Test issue", "status": {"name": "Open"}},
+            },
+            status=200,
+        )
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123/comment",
+            json={
+                "comments": [
+                    {"id": "1", "body": "First comment", "author": {"displayName": "User"}, "created": "2024-01-15T10:00:00.000+0000"},
+                ],
+                "total": 1,
+            },
+            status=200,
+        )
+
+        result = runner.invoke(main, ["get", "PROJ-123", "--comments"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert data["data"]["key"] == "PROJ-123"
+        assert data["data"]["total_comments"] == 1
+        assert data["data"]["comments"][0]["body"] == "First comment"
+
+    @responses.activate
+    def test_get_without_comments(self, runner, mock_env):
+        """Should not include comments by default."""
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123",
+            json={"key": "PROJ-123", "fields": {"summary": "Test"}},
+            status=200,
+        )
+
+        result = runner.invoke(main, ["get", "PROJ-123"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "comments" not in data["data"]
+
+
+class TestCLIPrettyTrailing:
+    """Tests for --pretty in trailing position."""
+
+    @responses.activate
+    def test_pretty_after_command(self, runner, mock_env):
+        """Should work when --pretty comes after the command."""
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123",
+            json={"key": "PROJ-123", "fields": {}},
+            status=200,
+        )
+
+        result = runner.invoke(main, ["get", "PROJ-123", "--pretty"])
+        assert result.exit_code == 0
+        assert "\n" in result.output
+        assert "  " in result.output
+
+
 class TestCLIIssueComments:
-    """Tests for 'jira issue comments' command."""
+    """Tests for 'jira comments' command."""
 
     @responses.activate
     def test_comments_default_limit(self, runner, mock_env):
@@ -321,7 +391,7 @@ class TestCLIIssueComments:
             status=200,
         )
 
-        result = runner.invoke(main, ["issue", "comments", "PROJ-123"])
+        result = runner.invoke(main, ["comments","PROJ-123"])
 
         assert result.exit_code == 0
         # Check that limit was 5 (default)
@@ -338,7 +408,7 @@ class TestCLIIssueComments:
             status=200,
         )
 
-        result = runner.invoke(main, ["issue", "comments", "PROJ-123", "--limit", "10"])
+        result = runner.invoke(main, ["comments","PROJ-123", "--limit", "10"])
 
         assert result.exit_code == 0
         url = responses.calls[0].request.url
@@ -364,7 +434,7 @@ class TestCLIIssueComments:
             status=200,
         )
 
-        result = runner.invoke(main, ["issue", "comments", "PROJ-123"])
+        result = runner.invoke(main, ["comments","PROJ-123"])
 
         data = json.loads(result.output)
         assert data["data"]["pagination"]["total"] == 10
@@ -372,7 +442,7 @@ class TestCLIIssueComments:
 
 
 class TestCLIIssueSearch:
-    """Tests for 'jira issue search' command."""
+    """Tests for 'jira search' command."""
 
     @responses.activate
     def test_search_basic(self, runner, mock_env):
@@ -384,7 +454,7 @@ class TestCLIIssueSearch:
             status=200,
         )
 
-        result = runner.invoke(main, ["issue", "search", "project = PROJ"])
+        result = runner.invoke(main, ["search","project = PROJ"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -392,7 +462,7 @@ class TestCLIIssueSearch:
 
 
 class TestCLIIssueComment:
-    """Tests for 'jira issue comment' command."""
+    """Tests for 'jira comment' command."""
 
     @responses.activate
     def test_add_comment(self, runner, mock_env):
@@ -409,7 +479,7 @@ class TestCLIIssueComment:
             status=201,
         )
 
-        result = runner.invoke(main, ["issue", "comment", "PROJ-123", "Test comment"])
+        result = runner.invoke(main, ["comment","PROJ-123", "Test comment"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -418,7 +488,7 @@ class TestCLIIssueComment:
 
 
 class TestCLIIssueTransitions:
-    """Tests for 'jira issue transitions' command."""
+    """Tests for 'jira transitions' command."""
 
     @responses.activate
     def test_list_transitions(self, runner, mock_env):
@@ -434,7 +504,7 @@ class TestCLIIssueTransitions:
             status=200,
         )
 
-        result = runner.invoke(main, ["issue", "transitions", "PROJ-123"])
+        result = runner.invoke(main, ["transitions","PROJ-123"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -495,7 +565,7 @@ class TestCLIConfigShow:
 
 
 class TestCLIIssueAttachments:
-    """Tests for 'jira issue attachments' command."""
+    """Tests for 'jira attachments' command."""
 
     @responses.activate
     def test_attachments_list(self, runner, mock_env):
@@ -522,7 +592,7 @@ class TestCLIIssueAttachments:
             status=200,
         )
 
-        result = runner.invoke(main, ["issue", "attachments", "PROJ-123"])
+        result = runner.invoke(main, ["attachments","PROJ-123"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -531,7 +601,7 @@ class TestCLIIssueAttachments:
 
 
 class TestCLIIssueLinks:
-    """Tests for 'jira issue links' command."""
+    """Tests for 'jira links' command."""
 
     @responses.activate
     def test_links_list(self, runner, mock_env):
@@ -577,7 +647,7 @@ class TestCLIIssueLinks:
             status=200,
         )
 
-        result = runner.invoke(main, ["issue", "links", "PROJ-123"])
+        result = runner.invoke(main, ["links","PROJ-123"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -589,7 +659,7 @@ class TestCLIIssueLinks:
 
 
 class TestCLIIssueWorklogs:
-    """Tests for 'jira issue worklogs' command."""
+    """Tests for 'jira worklogs' command."""
 
     @responses.activate
     def test_worklogs_list(self, runner, mock_env):
@@ -615,7 +685,7 @@ class TestCLIIssueWorklogs:
             status=200,
         )
 
-        result = runner.invoke(main, ["issue", "worklogs", "PROJ-123"])
+        result = runner.invoke(main, ["worklogs","PROJ-123"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -625,7 +695,7 @@ class TestCLIIssueWorklogs:
 
 
 class TestCLIIssueWorklogAdd:
-    """Tests for 'jira issue worklog' command."""
+    """Tests for 'jira worklog' command."""
 
     @responses.activate
     def test_worklog_add(self, runner, mock_env):
@@ -643,7 +713,7 @@ class TestCLIIssueWorklogAdd:
             status=201,
         )
 
-        result = runner.invoke(main, ["issue", "worklog", "PROJ-123", "1h 30m", "--comment", "Code review"])
+        result = runner.invoke(main, ["worklog","PROJ-123", "1h 30m", "--comment", "Code review"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -791,7 +861,7 @@ class TestNormalizeAttachment:
 
 
 class TestCLIIssueTransition:
-    """Tests for 'jira issue transition' command."""
+    """Tests for 'jira transition' command."""
 
     @responses.activate
     def test_transition_success(self, runner, mock_env):
@@ -817,7 +887,7 @@ class TestCLIIssueTransition:
             status=200,
         )
 
-        result = runner.invoke(main, ["issue", "transition", "PROJ-123", "11"])
+        result = runner.invoke(main, ["transition","PROJ-123", "11"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -845,14 +915,14 @@ class TestCLIIssueTransition:
             status=200,
         )
 
-        result = runner.invoke(main, ["issue", "transition", "PROJ-123", "21", "--comment", "Closing"])
+        result = runner.invoke(main, ["transition","PROJ-123", "21", "--comment", "Closing"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["data"]["comment_added"] is True
 
 
 class TestCLIIssueCreate:
-    """Tests for 'jira issue create' command."""
+    """Tests for 'jira create' command."""
 
     @responses.activate
     def test_create_issue(self, runner, mock_env):
@@ -865,7 +935,7 @@ class TestCLIIssueCreate:
         )
 
         result = runner.invoke(
-            main, ["issue", "create", "--project", "PROJ", "--type", "Bug", "--summary", "Test bug"]
+            main, ["create","--project", "PROJ", "--type", "Bug", "--summary", "Test bug"]
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -885,7 +955,6 @@ class TestCLIIssueCreate:
         result = runner.invoke(
             main,
             [
-                "issue",
                 "create",
                 "--project",
                 "PROJ",
@@ -903,7 +972,7 @@ class TestCLIIssueCreate:
 
 
 class TestCLIIssueUpdate:
-    """Tests for 'jira issue update' command."""
+    """Tests for 'jira update' command."""
 
     @responses.activate
     def test_update_issue_summary(self, runner, mock_env):
@@ -935,7 +1004,7 @@ class TestCLIIssueUpdate:
             status=200,
         )
 
-        result = runner.invoke(main, ["issue", "update", "PROJ-123", "--summary", "New summary"])
+        result = runner.invoke(main, ["update","PROJ-123", "--summary", "New summary"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -963,7 +1032,7 @@ class TestCLIIssueUpdate:
             status=200,
         )
 
-        result = runner.invoke(main, ["issue", "update", "PROJ-123", "--assignee", "jdoe"])
+        result = runner.invoke(main, ["update","PROJ-123", "--assignee", "jdoe"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -972,7 +1041,7 @@ class TestCLIIssueUpdate:
 
     def test_update_no_fields_error(self, runner, mock_env):
         """Should error when no fields specified."""
-        result = runner.invoke(main, ["issue", "update", "PROJ-123"])
+        result = runner.invoke(main, ["update","PROJ-123"])
         assert result.exit_code == 4  # INVALID_INPUT
         data = json.loads(result.output)
         assert data["ok"] is False
@@ -999,7 +1068,7 @@ class TestCLIIssueUpdate:
             status=200,
         )
 
-        result = runner.invoke(main, ["issue", "update", "PROJ-123", "--labels", "new,labels"])
+        result = runner.invoke(main, ["update","PROJ-123", "--labels", "new,labels"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -1036,7 +1105,7 @@ class TestCLICommentsAllFlag:
             status=200,
         )
 
-        result = runner.invoke(main, ["issue", "comments", "PROJ-123", "--all"])
+        result = runner.invoke(main, ["comments","PROJ-123", "--all"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -1047,14 +1116,16 @@ class TestCLICommentsAllFlag:
 class TestCLIConfigError:
     """Tests for ConfigError handling in CLI commands."""
 
-    def test_missing_config_error(self, runner):
+    def test_missing_config_error(self, runner, monkeypatch):
         """Should return proper error for missing config."""
-        # Don't set environment variables
-        result = runner.invoke(main, ["issue", "get", "PROJ-123"])
+        # Ensure no environment variables or config file
+        monkeypatch.delenv("JIRA_SERVER", raising=False)
+        monkeypatch.delenv("JIRA_TOKEN", raising=False)
+        result = runner.invoke(main, ["--config", "/nonexistent/no-such-file.json", "get", "PROJ-123"])
         assert result.exit_code == 1  # GENERAL_ERROR (ConfigError)
         data = json.loads(result.output)
         assert data["ok"] is False
-        assert "JIRA_SERVER" in data["error"]["message"] or "config" in data["error"]["message"].lower()
+        assert "CONFIG_ERROR" in data["error"]["code"]
 
 
 class TestCLIAttachmentContentBinary:
@@ -1092,7 +1163,7 @@ class TestCLIAttachmentContentBinary:
 
 
 class TestCLIIssueWatchers:
-    """Tests for 'jira issue watchers' command."""
+    """Tests for 'jira watchers' command."""
 
     @responses.activate
     def test_watchers_list(self, runner, mock_env):
@@ -1121,7 +1192,7 @@ class TestCLIIssueWatchers:
             status=200,
         )
 
-        result = runner.invoke(main, ["issue", "watchers", "PROJ-123"])
+        result = runner.invoke(main, ["watchers","PROJ-123"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -1133,7 +1204,7 @@ class TestCLIIssueWatchers:
 
 
 class TestCLIIssueWatch:
-    """Tests for 'jira issue watch' command."""
+    """Tests for 'jira watch' command."""
 
     @responses.activate
     def test_watch_with_user(self, runner, mock_env):
@@ -1144,7 +1215,7 @@ class TestCLIIssueWatch:
             status=204,
         )
 
-        result = runner.invoke(main, ["issue", "watch", "PROJ-123", "--user", "jdoe"])
+        result = runner.invoke(main, ["watch","PROJ-123", "--user", "jdoe"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -1167,7 +1238,7 @@ class TestCLIIssueWatch:
             status=204,
         )
 
-        result = runner.invoke(main, ["issue", "watch", "PROJ-123"])
+        result = runner.invoke(main, ["watch","PROJ-123"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -1175,7 +1246,7 @@ class TestCLIIssueWatch:
 
 
 class TestCLIIssueUnwatch:
-    """Tests for 'jira issue unwatch' command."""
+    """Tests for 'jira unwatch' command."""
 
     @responses.activate
     def test_unwatch_with_user(self, runner, mock_env):
@@ -1186,7 +1257,7 @@ class TestCLIIssueUnwatch:
             status=204,
         )
 
-        result = runner.invoke(main, ["issue", "unwatch", "PROJ-123", "--user", "jdoe"])
+        result = runner.invoke(main, ["unwatch","PROJ-123", "--user", "jdoe"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -1209,7 +1280,7 @@ class TestCLIIssueUnwatch:
             status=204,
         )
 
-        result = runner.invoke(main, ["issue", "unwatch", "PROJ-123"])
+        result = runner.invoke(main, ["unwatch","PROJ-123"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True

@@ -109,14 +109,35 @@ def handle_error(error: JiraToolError, command: str, pretty: bool) -> int:
     return error.exit_code
 
 
+# Global flags that can appear anywhere on the command line.
+# We extract these before Click parses, so they work in any position
+# (e.g. both "jira --pretty get KEY" and "jira get KEY --pretty").
+_HOISTABLE_FLAGS = {"--pretty", "--debug"}
+
+
 class JsonErrorGroup(click.Group):
-    """Click group that wraps usage errors in JSON envelope.
+    """Click group that wraps usage errors in JSON envelope and hoists global flags.
 
     When an LLM passes invalid arguments, Click normally prints a
     human-readable error to stderr and exits. This subclass catches
     those errors and outputs a structured JSON error envelope to stdout
     instead, maintaining the tool's JSON-only contract.
+
+    Additionally, --pretty and --debug are extracted from anywhere in
+    the argument list so they work in any position.
     """
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        # Pull hoistable flags out of wherever they appear and
+        # inject them at the front so Click's group-level parser sees them.
+        hoisted = []
+        remaining = []
+        for arg in args:
+            if arg in _HOISTABLE_FLAGS:
+                hoisted.append(arg)
+            else:
+                remaining.append(arg)
+        return super().parse_args(ctx, hoisted + remaining)
 
     def invoke(self, ctx: click.Context) -> Any:
         try:
@@ -192,8 +213,8 @@ def describe(ctx: click.Context, command_name: str | None) -> None:
     tool_desc = get_tool_description()
 
     if command_name:
-        # Normalize: "issue.get" -> "issue get", or accept either form
-        normalized = command_name.replace(".", " ")
+        # Normalize: "get" or "issue.get" -> "get", accept either form
+        normalized = command_name.replace(".", " ").replace("issue ", "")
         matching = [c for c in tool_desc.commands if c.name == normalized]
         if not matching:
             envelope = error_response_from_dict(
@@ -216,22 +237,18 @@ def describe(ctx: click.Context, command_name: str | None) -> None:
 
 
 # =============================================================================
-# Issue Commands
+# Issue Commands (top-level, no "issue" subgroup)
 # =============================================================================
 
 
-@main.group()
-def issue() -> None:
-    """Issue operations."""
-    pass
-
-
-@issue.command("get")
+@main.command("get")
 @click.argument("key")
 @click.option("--fields", help="Comma-separated list of fields to return")
 @click.option("--output", "output_field_name", help="Output only this field (plain text, no JSON envelope)")
+@click.option("--comments", "include_comments", is_flag=True, default=False,
+              help="Include first 5 comments inline")
 @click.pass_context
-def issue_get(ctx: click.Context, key: str, fields: str | None, output_field_name: str | None) -> None:
+def issue_get(ctx: click.Context, key: str, fields: str | None, output_field_name: str | None, include_comments: bool) -> None:
     """
     Get issue details.
 
@@ -239,9 +256,10 @@ def issue_get(ctx: click.Context, key: str, fields: str | None, output_field_nam
 
     Returns issue summary, description, status, and other core fields.
 
+    Use --comments to include comments inline (default: 5).
     Use --output to extract a single field (e.g., --output key, --output status).
     """
-    command = "issue.get"
+    command = "get"
     pretty = ctx.obj.get("pretty", False)
 
     try:
@@ -259,16 +277,28 @@ def issue_get(ctx: click.Context, key: str, fields: str | None, output_field_nam
             output_field(issue_data, output_field_name)
             sys.exit(ExitCode.SUCCESS)
 
+        # If --comments specified, fetch and inline comments
+        if include_comments:
+            raw_comments = client.get_comments(key, start_at=0, max_results=5, order_by="created")
+            comments_data = _normalize_comments(raw_comments)
+            issue_data["comments"] = comments_data.get("comments", [])
+            issue_data["total_comments"] = comments_data.get("total_comments", 0)
+
         issue_key = issue_data.get("key", key)
+        next_actions = [
+            f"jira comments {issue_key}",
+            f"jira transitions {issue_key}",
+            f"jira attachments {issue_key}",
+            f"jira links {issue_key}",
+        ]
+        if not include_comments:
+            # Suggest --comments if they didn't use it
+            next_actions.insert(0, f"jira get {issue_key} --comments")
+
         envelope = success_response(
             issue_data,
             command,
-            next_actions=[
-                f"jira issue comments {issue_key}",
-                f"jira issue transitions {issue_key}",
-                f"jira issue attachments {issue_key}",
-                f"jira issue links {issue_key}",
-            ],
+            next_actions=next_actions,
         )
         output_result(envelope, pretty)
         sys.exit(ExitCode.SUCCESS)
@@ -279,7 +309,7 @@ def issue_get(ctx: click.Context, key: str, fields: str | None, output_field_nam
         sys.exit(handle_error(e, command, pretty))
 
 
-@issue.command("comments")
+@main.command("comments")
 @click.argument("key")
 @click.option("--limit", default=5, help="Maximum number of comments to return (default: 5)")
 @click.option("--offset", default=0, help="Skip first N comments (default: 0)")
@@ -298,7 +328,7 @@ def issue_comments(
     By default returns comments in chronological order (oldest first).
     Use --newest-first to reverse the order.
     """
-    command = "issue.comments"
+    command = "comments"
     pretty = ctx.obj.get("pretty", False)
 
     try:
@@ -325,8 +355,8 @@ def issue_comments(
             comments_data,
             command,
             next_actions=[
-                f"jira issue comment {key} \"<your reply>\"",
-                f"jira issue get {key}",
+                f"jira comment {key} \"<your reply>\"",
+                f"jira get {key}",
             ],
         )
         output_result(envelope, pretty)
@@ -338,7 +368,7 @@ def issue_comments(
         sys.exit(handle_error(e, command, pretty))
 
 
-@issue.command("search")
+@main.command("search")
 @click.argument("jql")
 @click.option("--limit", default=20, help="Maximum results to return (default: 20)")
 @click.option("--offset", default=0, help="Skip first N results (default: 0)")
@@ -351,11 +381,11 @@ def issue_search(ctx: click.Context, jql: str, limit: int, offset: int, fields: 
 
     JQL is the JIRA Query Language query string.
 
-    Example: jira issue search "project = PROJ AND status = Open"
+    Example: jira search "project = PROJ AND status = Open"
 
     Use --output to extract a field from each result (e.g., --output key).
     """
-    command = "issue.search"
+    command = "search"
     pretty = ctx.obj.get("pretty", False)
 
     try:
@@ -389,7 +419,7 @@ def issue_search(ctx: click.Context, jql: str, limit: int, offset: int, fields: 
         envelope = success_response(
             search_data,
             command,
-            next_actions=["jira issue get <KEY> -- get details for a specific result"],
+            next_actions=["jira get <KEY> -- get details for a specific result"],
         )
         output_result(envelope, pretty)
         sys.exit(ExitCode.SUCCESS)
@@ -400,7 +430,7 @@ def issue_search(ctx: click.Context, jql: str, limit: int, offset: int, fields: 
         sys.exit(handle_error(e, command, pretty))
 
 
-@issue.command("comment")
+@main.command("comment")
 @click.argument("key")
 @click.argument("body")
 @click.pass_context
@@ -411,7 +441,7 @@ def issue_comment_add(ctx: click.Context, key: str, body: str) -> None:
     KEY is the issue key (e.g., PROJ-123) or a JIRA URL.
     BODY is the comment text.
     """
-    command = "issue.comment"
+    command = "comment"
     pretty = ctx.obj.get("pretty", False)
 
     try:
@@ -436,7 +466,7 @@ def issue_comment_add(ctx: click.Context, key: str, body: str) -> None:
         sys.exit(handle_error(e, command, pretty))
 
 
-@issue.command("transitions")
+@main.command("transitions")
 @click.argument("key")
 @click.pass_context
 def issue_transitions_list(ctx: click.Context, key: str) -> None:
@@ -445,7 +475,7 @@ def issue_transitions_list(ctx: click.Context, key: str) -> None:
 
     KEY is the issue key (e.g., PROJ-123) or a JIRA URL.
     """
-    command = "issue.transitions"
+    command = "transitions"
     pretty = ctx.obj.get("pretty", False)
 
     try:
@@ -471,7 +501,7 @@ def issue_transitions_list(ctx: click.Context, key: str) -> None:
             transitions_data,
             command,
             next_actions=[
-                f"jira issue transition {key} <ID> -- use an ID from the list above",
+                f"jira transition {key} <ID> -- use an ID from the list above",
             ],
         )
         output_result(envelope, pretty)
@@ -483,7 +513,7 @@ def issue_transitions_list(ctx: click.Context, key: str) -> None:
         sys.exit(handle_error(e, command, pretty))
 
 
-@issue.command("transition")
+@main.command("transition")
 @click.argument("key")
 @click.argument("transition_id")
 @click.option("--comment", help="Add a comment with the transition")
@@ -495,7 +525,7 @@ def issue_transition(ctx: click.Context, key: str, transition_id: str, comment: 
     KEY is the issue key (e.g., PROJ-123) or a JIRA URL.
     TRANSITION_ID is the transition ID (use 'transitions' command to list available).
     """
-    command = "issue.transition"
+    command = "transition"
     pretty = ctx.obj.get("pretty", False)
 
     try:
@@ -531,7 +561,7 @@ def issue_transition(ctx: click.Context, key: str, transition_id: str, comment: 
         sys.exit(handle_error(e, command, pretty))
 
 
-@issue.command("create")
+@main.command("create")
 @click.option("--project", required=True, help="Project key (e.g., PROJ)")
 @click.option("--type", "issue_type", required=True, help="Issue type (e.g., Bug, Task)")
 @click.option("--summary", required=True, help="Issue summary")
@@ -543,7 +573,7 @@ def issue_create(ctx: click.Context, project: str, issue_type: str, summary: str
 
     Requires --project, --type, and --summary options.
     """
-    command = "issue.create"
+    command = "create"
     pretty = ctx.obj.get("pretty", False)
 
     try:
@@ -572,7 +602,7 @@ def issue_create(ctx: click.Context, project: str, issue_type: str, summary: str
         sys.exit(handle_error(e, command, pretty))
 
 
-@issue.command("update")
+@main.command("update")
 @click.argument("key")
 @click.option("--summary", help="New issue summary")
 @click.option("--description", help="New issue description")
@@ -596,7 +626,7 @@ def issue_update(
 
     At least one field must be specified to update.
     """
-    command = "issue.update"
+    command = "update"
     pretty = ctx.obj.get("pretty", False)
 
     try:
@@ -662,7 +692,7 @@ def issue_update(
         sys.exit(handle_error(e, command, pretty))
 
 
-@issue.command("attachments")
+@main.command("attachments")
 @click.argument("key")
 @click.pass_context
 def issue_attachments(ctx: click.Context, key: str) -> None:
@@ -673,7 +703,7 @@ def issue_attachments(ctx: click.Context, key: str) -> None:
 
     Returns attachment metadata including filename, size, and content URL.
     """
-    command = "issue.attachments"
+    command = "attachments"
     pretty = ctx.obj.get("pretty", False)
 
     try:
@@ -701,7 +731,7 @@ def issue_attachments(ctx: click.Context, key: str) -> None:
         sys.exit(handle_error(e, command, pretty))
 
 
-@issue.command("links")
+@main.command("links")
 @click.argument("key")
 @click.pass_context
 def issue_links(ctx: click.Context, key: str) -> None:
@@ -712,7 +742,7 @@ def issue_links(ctx: click.Context, key: str) -> None:
 
     Shows relationships like: blocks, is blocked by, relates to, duplicates, etc.
     """
-    command = "issue.links"
+    command = "links"
     pretty = ctx.obj.get("pretty", False)
 
     try:
@@ -764,7 +794,7 @@ def issue_links(ctx: click.Context, key: str) -> None:
         sys.exit(handle_error(e, command, pretty))
 
 
-@issue.command("worklogs")
+@main.command("worklogs")
 @click.argument("key")
 @click.option("--limit", default=20, help="Maximum worklogs to return (default: 20)")
 @click.option("--offset", default=0, help="Skip first N worklogs (default: 0)")
@@ -775,7 +805,7 @@ def issue_worklogs(ctx: click.Context, key: str, limit: int, offset: int) -> Non
 
     KEY is the issue key (e.g., PROJ-123) or a JIRA URL.
     """
-    command = "issue.worklogs"
+    command = "worklogs"
     pretty = ctx.obj.get("pretty", False)
 
     try:
@@ -820,7 +850,7 @@ def issue_worklogs(ctx: click.Context, key: str, limit: int, offset: int) -> Non
         sys.exit(handle_error(e, command, pretty))
 
 
-@issue.command("worklog")
+@main.command("worklog")
 @click.argument("key")
 @click.argument("time_spent")
 @click.option("--comment", help="Comment for the worklog entry")
@@ -832,7 +862,7 @@ def issue_worklog_add(ctx: click.Context, key: str, time_spent: str, comment: st
     KEY is the issue key (e.g., PROJ-123) or a JIRA URL.
     TIME_SPENT is in JIRA format (e.g., "2h 30m", "1d", "30m").
     """
-    command = "issue.worklog"
+    command = "worklog"
     pretty = ctx.obj.get("pretty", False)
 
     try:
@@ -862,7 +892,7 @@ def issue_worklog_add(ctx: click.Context, key: str, time_spent: str, comment: st
         sys.exit(handle_error(e, command, pretty))
 
 
-@issue.command("watchers")
+@main.command("watchers")
 @click.argument("key")
 @click.pass_context
 def issue_watchers(ctx: click.Context, key: str) -> None:
@@ -871,7 +901,7 @@ def issue_watchers(ctx: click.Context, key: str) -> None:
 
     KEY is the issue key (e.g., PROJ-123) or a JIRA URL.
     """
-    command = "issue.watchers"
+    command = "watchers"
     pretty = ctx.obj.get("pretty", False)
 
     try:
@@ -907,7 +937,7 @@ def issue_watchers(ctx: click.Context, key: str) -> None:
         sys.exit(handle_error(e, command, pretty))
 
 
-@issue.command("watch")
+@main.command("watch")
 @click.argument("key")
 @click.option("--user", help="Username to add as watcher (default: current user)")
 @click.pass_context
@@ -920,7 +950,7 @@ def issue_watch(ctx: click.Context, key: str, user: str | None) -> None:
     By default, adds the current authenticated user as a watcher.
     Use --user to add a different user.
     """
-    command = "issue.watch"
+    command = "watch"
     pretty = ctx.obj.get("pretty", False)
 
     try:
@@ -957,7 +987,7 @@ def issue_watch(ctx: click.Context, key: str, user: str | None) -> None:
         sys.exit(handle_error(e, command, pretty))
 
 
-@issue.command("unwatch")
+@main.command("unwatch")
 @click.argument("key")
 @click.option("--user", help="Username to remove as watcher (default: current user)")
 @click.pass_context
@@ -970,7 +1000,7 @@ def issue_unwatch(ctx: click.Context, key: str, user: str | None) -> None:
     By default, removes the current authenticated user as a watcher.
     Use --user to remove a different user.
     """
-    command = "issue.unwatch"
+    command = "unwatch"
     pretty = ctx.obj.get("pretty", False)
 
     try:
