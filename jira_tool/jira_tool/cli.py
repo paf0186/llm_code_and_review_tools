@@ -279,7 +279,7 @@ def issue_get(ctx: click.Context, key: str, fields: str | None, output_field_nam
 
         # If --comments specified, fetch and inline comments
         if include_comments:
-            raw_comments = client.get_comments(key, start_at=0, max_results=5, order_by="created")
+            raw_comments = client.get_comments(key, start_at=0, max_results=5, order_by="-created")
             comments_data = _normalize_comments(raw_comments)
             issue_data["comments"] = comments_data.get("comments", [])
             issue_data["total_comments"] = comments_data.get("total_comments", 0)
@@ -315,18 +315,18 @@ def issue_get(ctx: click.Context, key: str, fields: str | None, output_field_nam
 @click.option("--offset", default=0, help="Skip first N comments (default: 0)")
 @click.option("--all", "fetch_all", is_flag=True, help="Fetch all comments (use with caution)")
 @click.option("--summary-only", is_flag=True, help="Only return comment summary, not content")
-@click.option("--newest-first", is_flag=True, help="Sort by newest first (default is oldest first)")
+@click.option("--oldest-first", is_flag=True, help="Sort by oldest first (default is newest first)")
 @click.pass_context
 def issue_comments(
-    ctx: click.Context, key: str, limit: int, offset: int, fetch_all: bool, summary_only: bool, newest_first: bool
+    ctx: click.Context, key: str, limit: int, offset: int, fetch_all: bool, summary_only: bool, oldest_first: bool
 ) -> None:
     """
     Get comments for an issue.
 
     KEY is the issue key (e.g., PROJ-123) or a JIRA URL.
 
-    By default returns comments in chronological order (oldest first).
-    Use --newest-first to reverse the order.
+    By default returns comments in reverse chronological order (newest first).
+    Use --oldest-first to get chronological order.
     """
     command = "comments"
     pretty = ctx.obj.get("pretty", False)
@@ -338,7 +338,7 @@ def issue_comments(
         if fetch_all:
             limit = 1000  # JIRA max
 
-        order_by = "-created" if newest_first else "created"
+        order_by = "created" if oldest_first else "-created"
         raw_comments = client.get_comments(key, start_at=offset, max_results=limit, order_by=order_by)
 
         # Build response data

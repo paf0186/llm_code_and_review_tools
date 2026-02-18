@@ -1422,6 +1422,33 @@ def cmd_maloo(args):
         sys.exit(output_error(ErrorCode.API_ERROR, str(e), command, pretty))
 
 
+def cmd_message(args):
+    """Post a top-level message on a Gerrit change."""
+    command = "message"
+    pretty = getattr(args, 'pretty', False)
+
+    try:
+        base_url, change_number = GerritCommentsClient.parse_gerrit_url(args.url)
+        client = GerritCommentsClient()
+
+        client.post_review(
+            change_number=change_number,
+            revision_id="current",
+            message=args.text,
+        )
+
+        data = {
+            "success": True,
+            "change_number": change_number,
+            "message": args.text,
+        }
+        output_success(data, command, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except Exception as e:
+        sys.exit(output_error(ErrorCode.API_ERROR, str(e), command, pretty))
+
+
 def cmd_checkout(args):
     """Fetch and checkout a Gerrit change."""
     import subprocess
@@ -2319,6 +2346,7 @@ def main():
         'abandon': cmd_abandon,
         'checkout': cmd_checkout,
         'maloo': cmd_maloo,
+        'message': cmd_message,
         'explain': cmd_explain,
         'examples': cmd_examples,
         'done': cmd_done,

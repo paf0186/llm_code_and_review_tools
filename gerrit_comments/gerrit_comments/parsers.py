@@ -838,6 +838,25 @@ def add_describe_parser(subparsers):
     return parser
 
 
+def add_message_parser(subparsers):
+    """Add the 'message' subcommand parser."""
+    parser = subparsers.add_parser(
+        "message",
+        help="Post a top-level message on a Gerrit change",
+        description="Post a top-level review message (not a file comment) "
+                    "on a Gerrit change. This is the equivalent of leaving "
+                    "a comment in the Gerrit web UI.",
+    )
+    parser.add_argument("url", help="Gerrit change URL or number")
+    parser.add_argument("text", help="Message text to post")
+    parser.add_argument(
+        "--pretty", "-p",
+        action="store_true",
+        help="Pretty-print JSON output",
+    )
+    return parser
+
+
 def setup_parsers(subparsers, handlers):
     """Set up all subparsers and bind them to command handlers.
 
@@ -900,6 +919,9 @@ def setup_parsers(subparsers, handlers):
 
     # Test result triage
     add_maloo_parser(subparsers).set_defaults(func=handlers['maloo'])
+
+    # Top-level messaging
+    add_message_parser(subparsers).set_defaults(func=handlers['message'])
 
     # Help/documentation commands
     add_explain_parser(subparsers).set_defaults(func=handlers['explain'])

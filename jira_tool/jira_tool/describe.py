@@ -47,11 +47,11 @@ def get_tool_description() -> ToolDescription:
                     Argument(name="--offset", description="Skip first N comments", type="integer", default=0),
                     Argument(name="--all", description="Fetch all comments", type="boolean", default=False),
                     Argument(name="--summary-only", description="Only return comment metadata, not full content", type="boolean", default=False),
-                    Argument(name="--newest-first", description="Sort newest first instead of oldest", type="boolean", default=False),
+                    Argument(name="--oldest-first", description="Sort oldest first (default is newest first)", type="boolean", default=False),
                 ],
                 examples=[
                     "jira comments PROJ-123",
-                    "jira comments PROJ-123 --limit 10 --newest-first",
+                    "jira comments PROJ-123 --limit 10 --oldest-first",
                     "jira comments PROJ-123 --summary-only",
                 ],
                 output_fields=["issue_key", "total_comments", "comments[].id", "comments[].body", "comments[].author", "comments[].created", "pagination"],
