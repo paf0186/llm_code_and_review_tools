@@ -179,7 +179,7 @@ def failures(session_url: str, pretty: bool) -> None:
             "failed_count": ts.get("sub_tests_failed_count", 0),
             "total_count": ts.get("sub_tests_count", 0),
             "failed_subtests": failed_subtests,
-            "logs": ts.get("logs"),
+            "logs_cmd": f"maloo logs {ts['id']}",
         })
 
     result = {
@@ -189,10 +189,14 @@ def failures(session_url: str, pretty: bool) -> None:
         "failed_suites": failed_suites,
     }
 
+    suite_ids = [s["suite_id"] for s in failed_suites[:1]]
     next_actions = [
         f"maloo subtests <suite_id> -- get all subtests for a suite",
-        f"maloo logs {sid} -- download test logs",
     ]
+    for suite_id in suite_ids:
+        next_actions.append(
+            f"maloo logs {suite_id} -- download test logs"
+        )
 
     env = success_response(result, TOOL_NAME, "failures", next_actions)
     _output(env, pretty)
@@ -809,6 +813,130 @@ def retest(session_url: str, jira_ticket: str, option: str, pretty: bool) -> Non
         "response": resp,
     }
     env = success_response(result, TOOL_NAME, "retest")
+    _output(env, pretty)
+
+
+@main.command()
+@click.argument("test_set_id")
+@click.option("--output-dir", type=str, default="/tmp/maloo_logs",
+              help="Directory to extract logs into (default: /tmp/maloo_logs)")
+@click.option("--grep", "grep_pattern", type=str, default=None,
+              help="Search extracted logs for a pattern (grep -i)")
+@click.option("--pretty", is_flag=True, help="Pretty-print JSON")
+def logs(
+    test_set_id: str,
+    output_dir: str,
+    grep_pattern: str | None,
+    pretty: bool,
+) -> None:
+    """Download and extract test logs for a test set (suite).
+
+    TEST_SET_ID is the UUID of the test set. You can find it
+    from 'maloo failures' or 'maloo session' output.
+
+    \b
+    Examples:
+      maloo logs <test_set_id>
+      maloo logs <test_set_id> --grep "test_81a"
+      maloo logs <test_set_id> --output-dir /tmp/my_logs
+    """
+    import os
+    import zipfile
+    import tempfile
+    from io import BytesIO
+
+    client = _make_client()
+
+    try:
+        data = client.download_logs(test_set_id)
+    except Exception as exc:
+        _error("DOWNLOAD_FAILED", str(exc), "logs", pretty)
+        return
+
+    # Extract the archive
+    os.makedirs(output_dir, exist_ok=True)
+    extracted_files: list[str] = []
+
+    try:
+        with zipfile.ZipFile(BytesIO(data)) as zf:
+            for name in zf.namelist():
+                zf.extract(name, output_dir)
+                extracted_files.append(
+                    os.path.join(output_dir, name)
+                )
+    except zipfile.BadZipFile:
+        # Try as gzip/tar
+        import tarfile
+        try:
+            with tarfile.open(
+                fileobj=BytesIO(data), mode="r:gz"
+            ) as tf:
+                tf.extractall(output_dir)
+                extracted_files = [
+                    os.path.join(output_dir, m.name)
+                    for m in tf.getmembers()
+                    if m.isfile()
+                ]
+        except Exception:
+            # Save raw file for manual inspection
+            raw_path = os.path.join(
+                output_dir, f"{test_set_id}.bin"
+            )
+            with open(raw_path, "wb") as f:
+                f.write(data)
+            extracted_files = [raw_path]
+
+    # Optional grep
+    grep_results: list[dict[str, Any]] = []
+    if grep_pattern and extracted_files:
+        import subprocess
+
+        for fpath in extracted_files:
+            if not os.path.isfile(fpath):
+                continue
+            try:
+                proc = subprocess.run(
+                    ["grep", "-in", grep_pattern, fpath],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=30,
+                )
+                if proc.returncode == 0:
+                    lines = proc.stdout.decode(
+                        "utf-8", errors="replace"
+                    ).strip().split("\n")
+                    grep_results.append({
+                        "file": os.path.basename(fpath),
+                        "path": fpath,
+                        "match_count": len(lines),
+                        "matches": lines[:50],
+                    })
+            except Exception:
+                pass
+
+    result: dict[str, Any] = {
+        "test_set_id": test_set_id,
+        "output_dir": output_dir,
+        "archive_size": len(data),
+        "files": [
+            {
+                "name": os.path.basename(f),
+                "path": f,
+                "size": (
+                    os.path.getsize(f)
+                    if os.path.isfile(f)
+                    else 0
+                ),
+            }
+            for f in extracted_files
+        ],
+    }
+
+    if grep_pattern:
+        result["grep_pattern"] = grep_pattern
+        result["grep_results"] = grep_results
+
+    env = success_response(result, TOOL_NAME, "logs")
     _output(env, pretty)
 
 

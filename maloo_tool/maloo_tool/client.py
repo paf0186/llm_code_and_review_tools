@@ -535,6 +535,59 @@ class MalooClient:
         result.sort(key=lambda x: x["count"], reverse=True)
         return result, sessions_total, sessions_total
 
+    # -- Web session auth (for non-API endpoints) --
+
+    _web_logged_in: bool = False
+
+    def _web_login(self) -> None:
+        """Log in via the web sign-in form for cookie-based auth.
+
+        The REST API uses basic auth, but web endpoints like
+        download_logs require cookie-based auth via the sign-in form.
+        """
+        if self._web_logged_in:
+            return
+
+        import re as _re
+
+        # Use a separate session without basic auth for web login
+        web = requests.Session()
+        signin_url = f"{self.config.base_url}/signin"
+        resp = web.get(signin_url, timeout=30)
+        resp.raise_for_status()
+
+        # Extract CSRF token from form
+        m = _re.search(
+            r'name="authenticity_token"[^>]*value="([^"]+)"',
+            resp.text,
+        )
+        if not m:
+            raise RuntimeError(
+                "Could not extract CSRF token from sign-in page"
+            )
+
+        # Find the form action
+        action_m = _re.search(
+            r'<form[^>]*action="([^"]+)"', resp.text
+        )
+        action = action_m.group(1) if action_m else "/sessions"
+
+        login_resp = web.post(
+            f"{self.config.base_url}{action}",
+            data={
+                "authenticity_token": m.group(1),
+                "email": self.config.username,
+                "password": self.config.password,
+                "commit": "Sign in",
+            },
+            timeout=30,
+            allow_redirects=True,
+        )
+
+        # Merge web session cookies into our main session
+        self.session.cookies.update(web.cookies)
+        self._web_logged_in = True
+
     # -- Retest (web form, not REST API) --
 
     def _get_csrf_token(self, session_id: str) -> str:
@@ -546,6 +599,34 @@ class MalooClient:
         if not m:
             raise RuntimeError("Could not extract CSRF token from session page")
         return m.group(1)
+
+    def download_logs(
+        self, test_set_id: str, timeout: int = 120
+    ) -> bytes:
+        """Download test logs for a test set (suite).
+
+        Args:
+            test_set_id: UUID of the test set.
+            timeout: HTTP timeout in seconds.
+
+        Returns:
+            Raw bytes of the log archive (zip format).
+        """
+        self._web_login()
+        url = (
+            f"{self.config.base_url}"
+            f"/test_sets/{test_set_id}/download_logs"
+        )
+        resp = self.session.get(
+            url, timeout=timeout, allow_redirects=True
+        )
+        resp.raise_for_status()
+        content_type = resp.headers.get("Content-Type", "")
+        if "text/html" in content_type:
+            raise RuntimeError(
+                "Log download returned HTML (auth may have failed)"
+            )
+        return resp.content
 
     def retest(
         self,
