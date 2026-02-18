@@ -3,6 +3,7 @@
 import json
 import re
 import sys
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import click
@@ -381,6 +382,399 @@ def link_bug(
         _output(env, pretty)
     else:
         _error("LINK_FAILED", resp, "link-bug", pretty)
+
+
+@main.command()
+@click.option("--branch", type=str, default=None,
+              help="Filter by branch (trigger_job), e.g. lustre-master")
+@click.option("--days", type=int, default=7,
+              help="Number of days to look back (default: 7)")
+@click.option("--host", type=str, default=None,
+              help="Filter by test host name")
+@click.option("--failed", is_flag=True, default=False,
+              help="Only show sessions with failures")
+@click.option("--limit", type=int, default=20,
+              help="Max sessions to return (default: 20)")
+@click.option("--pretty", is_flag=True, help="Pretty-print JSON")
+def sessions(
+    branch: str | None,
+    days: int,
+    host: str | None,
+    failed: bool,
+    limit: int,
+    pretty: bool,
+) -> None:
+    """List and search test sessions.
+
+    Shows recent test sessions, optionally filtered by branch,
+    host, or failure status.
+
+    \b
+    Examples:
+      maloo sessions --branch lustre-master
+      maloo sessions --branch lustre-master --failed --days 14
+      maloo sessions --host onyx-53vm1 --days 3
+      maloo sessions --limit 50 --pretty
+    """
+    client = _make_client()
+
+    today = datetime.now(timezone.utc).date()
+    from_date = (today - timedelta(days=days)).strftime("%Y-%m-%d")
+    to_date = today.strftime("%Y-%m-%d")
+
+    params: dict[str, Any] = {
+        "from": from_date,
+        "to": to_date,
+    }
+    if branch:
+        params["trigger_job"] = branch
+    if host:
+        params["test_host"] = host
+    if failed:
+        params["test_sets_failed"] = "true"
+
+    try:
+        raw = client.get_sessions(params, max_records=limit)
+    except Exception as exc:
+        _error("API_ERROR", str(exc), "sessions", pretty)
+        return
+
+    items = []
+    for s in raw:
+        items.append({
+            "session_id": s.get("id"),
+            "test_group": s.get("test_group"),
+            "test_name": s.get("test_name"),
+            "test_host": s.get("test_host"),
+            "submission": s.get("submission"),
+            "enforcing": s.get("enforcing"),
+            "passed": s.get("test_sets_passed_count", 0),
+            "failed": s.get("test_sets_failed_count", 0),
+            "aborted": s.get("test_sets_aborted_count", 0),
+            "total": s.get("test_sets_count", 0),
+            "duration": s.get("duration"),
+            "trigger_job": s.get("trigger_job"),
+            "url": f"https://testing.whamcloud.com/test_sessions/{s.get('id')}",
+        })
+
+    filters = {}
+    if branch:
+        filters["branch"] = branch
+    if host:
+        filters["host"] = host
+    if failed:
+        filters["failed_only"] = True
+
+    result = {
+        "period": f"{from_date} to {to_date}",
+        "days": days,
+        "filters": filters,
+        "count": len(items),
+        "sessions": items,
+    }
+
+    next_actions = []
+    if items:
+        next_actions.append(
+            f"maloo session {items[0]['session_id']}"
+            f" -- details for most recent session"
+        )
+        has_failed = [s for s in items if s["failed"] > 0]
+        if has_failed:
+            next_actions.append(
+                f"maloo failures {has_failed[0]['session_id']}"
+                f" -- see failures"
+            )
+
+    env = success_response(result, TOOL_NAME, "sessions", next_actions or None)
+    _output(env, pretty)
+
+
+@main.command(name="test-history")
+@click.argument("test_name")
+@click.option("--branch", type=str, default="lustre-master",
+              help="Branch to search (default: lustre-master)")
+@click.option("--suite", type=str, default=None,
+              help="Suite name to filter (e.g. sanity, replay-single)")
+@click.option("--days", type=int, default=14,
+              help="Number of days to look back (default: 14)")
+@click.option("--sessions", "max_sessions", type=int, default=30,
+              help="Max sessions to examine (default: 30)")
+@click.option("--pretty", is_flag=True, help="Pretty-print JSON")
+def test_history(
+    test_name: str,
+    branch: str,
+    suite: str | None,
+    days: int,
+    max_sessions: int,
+    pretty: bool,
+) -> None:
+    """Show pass/fail history for a specific test.
+
+    Searches recent sessions on a branch for a subtest by name
+    and shows its status over time. Useful for determining if a
+    test is flaky or if a patch introduced a regression.
+
+    \b
+    TEST_NAME is the subtest name (e.g. test_39b).
+
+    \b
+    Examples:
+      maloo test-history test_39b
+      maloo test-history test_39b --suite sanity --days 30
+      maloo test-history test_1b --branch lustre-reviews --suite replay-vbr
+      maloo test-history test_39b --sessions 50 --pretty
+    """
+    client = _make_client()
+
+    today = datetime.now(timezone.utc).date()
+    from_date = (today - timedelta(days=days)).strftime("%Y-%m-%d")
+    to_date = today.strftime("%Y-%m-%d")
+
+    try:
+        history, resolved_suite = client.get_test_history(
+            test_name=test_name,
+            trigger_job=branch,
+            from_date=from_date,
+            to_date=to_date,
+            suite=suite,
+            max_sessions=max_sessions,
+        )
+    except Exception as exc:
+        _error("API_ERROR", str(exc), "test-history", pretty)
+        return
+
+    # Compute summary stats
+    total = len(history)
+    pass_count = sum(1 for h in history if h["status"] == "PASS")
+    fail_count = sum(1 for h in history if h["status"] in ("FAIL", "CRASH", "TIMEOUT"))
+    skip_count = sum(1 for h in history if h["status"] == "SKIP")
+    fail_rate = (fail_count / total * 100) if total > 0 else 0.0
+
+    result = {
+        "test_name": test_name,
+        "branch": branch,
+        "suite": resolved_suite or suite,
+        "period": f"{from_date} to {to_date}",
+        "days": days,
+        "sessions_examined": max_sessions,
+        "occurrences": total,
+        "summary": {
+            "pass": pass_count,
+            "fail": fail_count,
+            "skip": skip_count,
+            "fail_rate_pct": round(fail_rate, 1),
+        },
+        "history": [
+            {
+                "date": h["submission"][:10] if h["submission"] else "",
+                "submission": h["submission"],
+                "status": h["status"],
+                "error": h["error"][:200] if h["error"] else "",
+                "duration": h["duration"],
+                "test_host": h["test_host"],
+                "session_id": h["session_id"],
+                "test_set_id": h["test_set_id"],
+            }
+            for h in history
+        ],
+    }
+
+    next_actions = []
+    failed_entries = [h for h in history if h["status"] in ("FAIL", "CRASH", "TIMEOUT")]
+    if failed_entries:
+        ex = failed_entries[-1]
+        next_actions.append(
+            f"maloo failures {ex['session_id']}"
+            f" -- see all failures in that session"
+        )
+        next_actions.append(
+            f"maloo bugs {ex['test_set_id']}"
+            f" -- check bug links"
+        )
+
+    env = success_response(result, TOOL_NAME, "test-history", next_actions or None)
+    _output(env, pretty)
+
+
+@main.command()
+@click.option("--review", "review_id", type=int, default=None,
+              help="Gerrit review/change number")
+@click.option("--branch", "job", type=str, default=None,
+              help="Filter by job name (branch)")
+@click.option("--status", type=str, default=None,
+              help="Filter by queue status (e.g. Queued, Running)")
+@click.option("--limit", type=int, default=20,
+              help="Max entries to return (default: 20)")
+@click.option("--pretty", is_flag=True, help="Pretty-print JSON")
+def queue(
+    review_id: int | None,
+    job: str | None,
+    status: str | None,
+    limit: int,
+    pretty: bool,
+) -> None:
+    """Show test queue status.
+
+    Lists queued and running tests, optionally filtered by
+    Gerrit review, branch/job, or status.
+
+    \b
+    Examples:
+      maloo queue --review 54321
+      maloo queue --branch lustre-master
+      maloo queue --status Running
+      maloo queue --review 54321 --pretty
+    """
+    client = _make_client()
+
+    params: dict[str, Any] = {}
+    if review_id is not None:
+        params["review_id"] = review_id
+    if job:
+        params["job"] = job
+    if status:
+        params["status"] = status
+
+    if not params:
+        _error(
+            "MISSING_FILTER",
+            "At least one filter required: --review, --branch, or --status",
+            "queue",
+            pretty,
+        )
+        return
+
+    try:
+        raw = client.get_test_queues(params, max_records=limit)
+    except Exception as exc:
+        _error("API_ERROR", str(exc), "queue", pretty)
+        return
+
+    items = []
+    for q in raw:
+        items.append({
+            "id": q.get("id"),
+            "job": q.get("job"),
+            "buildno": q.get("buildno"),
+            "test_group": q.get("test_group"),
+            "status": q.get("status"),
+            "instance": q.get("instance"),
+            "review_id": q.get("review_id"),
+            "review_patch": q.get("review_patch"),
+        })
+
+    filters = {}
+    if review_id is not None:
+        filters["review_id"] = review_id
+    if job:
+        filters["job"] = job
+    if status:
+        filters["status"] = status
+
+    result = {
+        "filters": filters,
+        "count": len(items),
+        "queue_entries": items,
+    }
+
+    next_actions = []
+    if items and items[0].get("review_id"):
+        next_actions.append(
+            f"maloo review {items[0]['review_id']}"
+            f" -- see test sessions for this review"
+        )
+
+    env = success_response(result, TOOL_NAME, "queue", next_actions or None)
+    _output(env, pretty)
+
+
+@main.command(name="top-failures")
+@click.argument("branch", default="lustre-master")
+@click.option("--days", type=int, default=7, help="Number of days to look back (default: 7)")
+@click.option("--limit", type=int, default=20, help="Max failures to show (default: 20)")
+@click.option("--sessions", "max_sessions", type=int, default=50,
+              help="Max test sessions to examine (default: 50)")
+@click.option("--pretty", is_flag=True, help="Pretty-print JSON")
+def top_failures(
+    branch: str,
+    days: int,
+    limit: int,
+    max_sessions: int,
+    pretty: bool,
+) -> None:
+    """Show most common test failures for a branch.
+
+    Queries recent test sessions that have failures, drills into
+    each one to find failing subtests, and aggregates by test name.
+
+    \b
+    BRANCH is the trigger_job name (default: lustre-master).
+    Common branches: lustre-master, lustre-b2_15, lustre-b2_12
+
+    \b
+    Examples:
+      maloo top-failures
+      maloo top-failures lustre-master --days 14
+      maloo top-failures lustre-b2_15 --days 30 --limit 10
+      maloo top-failures --sessions 100 --pretty
+    """
+    client = _make_client()
+
+    today = datetime.now(timezone.utc).date()
+    from_date = (today - timedelta(days=days)).strftime("%Y-%m-%d")
+    to_date = today.strftime("%Y-%m-%d")
+
+    try:
+        failures, sessions_examined, _ = client.get_top_failures(
+            trigger_job=branch,
+            from_date=from_date,
+            to_date=to_date,
+            max_sessions=max_sessions,
+        )
+    except Exception as exc:
+        _error("API_ERROR", str(exc), "top-failures", pretty)
+        return  # unreachable, _error calls sys.exit
+
+    top = failures[:limit]
+
+    result = {
+        "branch": branch,
+        "period": f"{from_date} to {to_date}",
+        "days": days,
+        "sessions_examined": sessions_examined,
+        "unique_failures": len(failures),
+        "showing": len(top),
+        "top_failures": [
+            {
+                "rank": i + 1,
+                "suite": f["suite"],
+                "test_name": f["test_name"],
+                "count": f["count"],
+                "session_count": f["session_count"],
+                "statuses": f["statuses"],
+                "error_sample": f["error_sample"],
+                "example_session_id": f["example_session_id"],
+                "example_test_set_id": f["example_test_set_id"],
+            }
+            for i, f in enumerate(top)
+        ],
+    }
+
+    next_actions = []
+    if top:
+        ex = top[0]
+        next_actions.append(
+            f"maloo failures {ex['example_session_id']}"
+            f" -- see failures in example session"
+        )
+        next_actions.append(
+            f"maloo bugs {ex['example_test_set_id']}"
+            f" -- check bug links for top failure"
+        )
+
+    env = success_response(result, TOOL_NAME, "top-failures", next_actions or None)
+    _output(env, pretty)
 
 
 @main.command()

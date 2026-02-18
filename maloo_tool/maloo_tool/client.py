@@ -50,6 +50,31 @@ class MalooClient:
 
     # -- Test Sessions --
 
+    def get_sessions(
+        self,
+        params: dict[str, Any],
+        max_records: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Get test sessions with arbitrary query params.
+
+        Args:
+            params: Query parameters for the test_sessions endpoint.
+            max_records: Stop after this many records (0 = no limit).
+        """
+        if max_records <= 0:
+            return self._get_all("test_sessions", params)
+        params = dict(params)
+        results: list[dict[str, Any]] = []
+        offset = 0
+        while len(results) < max_records:
+            params["offset"] = offset
+            page = self._get("test_sessions", params)
+            results.extend(page)
+            if len(page) < 200:
+                break
+            offset += 200
+        return results[:max_records]
+
     def get_session(self, session_id: str) -> dict[str, Any] | None:
         """Get a single test session by ID."""
         rows = self._get("test_sessions", {"id": session_id})
@@ -238,6 +263,277 @@ class MalooClient:
         resp = self.session.post(url, params=params, timeout=30)
         resp.raise_for_status()
         return resp.text.strip()
+
+    # -- Test queues --
+
+    def get_test_queues(
+        self,
+        params: dict[str, Any],
+        max_records: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Get test queue entries with arbitrary query params.
+
+        Args:
+            params: Query parameters for the test_queues endpoint.
+            max_records: Stop after this many records (0 = no limit).
+        """
+        if max_records <= 0:
+            return self._get_all("test_queues", params)
+        params = dict(params)
+        results: list[dict[str, Any]] = []
+        offset = 0
+        while len(results) < max_records:
+            params["offset"] = offset
+            page = self._get("test_queues", params)
+            results.extend(page)
+            if len(page) < 200:
+                break
+            offset += 200
+        return results[:max_records]
+
+    # -- Test history --
+
+    def find_sub_test_script_id(
+        self, name: str
+    ) -> str | None:
+        """Find a sub_test_script ID by name."""
+        rows = self._get("sub_test_scripts", {"name": name})
+        return rows[0]["id"] if rows else None
+
+    def find_test_set_script_id(
+        self, name: str
+    ) -> str | None:
+        """Find a test_set_script ID by name."""
+        rows = self._get("test_set_scripts", {"name": name})
+        return rows[0]["id"] if rows else None
+
+    def get_test_history(
+        self,
+        test_name: str,
+        trigger_job: str,
+        from_date: str,
+        to_date: str,
+        suite: str | None = None,
+        max_sessions: int = 50,
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Get pass/fail history for a specific test.
+
+        Args:
+            test_name: Subtest name (e.g. "test_39b").
+            trigger_job: Branch name (e.g. "lustre-master").
+            from_date: Start date (yyyy-mm-dd).
+            to_date: End date (yyyy-mm-dd).
+            suite: Optional suite name to filter (e.g. "sanity").
+            max_sessions: Max sessions to examine.
+
+        Returns:
+            (history_entries, suite_name_resolved)
+            Each entry has: session_id, submission, test_host,
+            suite, status, error, duration.
+        """
+        # Get sessions for the branch in the date range
+        params: dict[str, Any] = {
+            "trigger_job": trigger_job,
+            "from": from_date,
+            "to": to_date,
+        }
+        sessions = self.get_sessions(params, max_records=max_sessions)
+
+        # If suite filter given, resolve its script ID for faster matching
+        suite_script_id = None
+        if suite:
+            suite_script_id = self.find_test_set_script_id(suite)
+
+        # Cache for script name lookups
+        set_script_cache: dict[str, str] = {}
+        sub_script_cache: dict[str, str] = {}
+
+        history: list[dict[str, Any]] = []
+        resolved_suite = suite
+
+        for sess in sessions:
+            sid = sess["id"]
+            test_sets = self.get_test_sets(sid)
+
+            # Resolve set names we haven't seen
+            new_set_ids = {
+                ts["test_set_script_id"]
+                for ts in test_sets
+                if "test_set_script_id" in ts
+                and ts["test_set_script_id"] not in set_script_cache
+            }
+            for script_id in new_set_ids:
+                script = self.get_test_set_script(script_id)
+                if script:
+                    set_script_cache[script_id] = script["name"]
+
+            # Filter test sets by suite if specified
+            target_sets = test_sets
+            if suite_script_id:
+                target_sets = [
+                    ts for ts in test_sets
+                    if ts.get("test_set_script_id") == suite_script_id
+                ]
+            elif suite:
+                target_sets = [
+                    ts for ts in test_sets
+                    if set_script_cache.get(
+                        ts.get("test_set_script_id", "")
+                    ) == suite
+                ]
+
+            for ts in target_sets:
+                suite_name = set_script_cache.get(
+                    ts.get("test_set_script_id", ""), "unknown"
+                )
+                subtests = self.get_subtests(test_set_id=ts["id"])
+
+                # Resolve subtest names we haven't seen
+                new_sub_ids = {
+                    st["sub_test_script_id"]
+                    for st in subtests
+                    if "sub_test_script_id" in st
+                    and st["sub_test_script_id"] not in sub_script_cache
+                }
+                for script_id in new_sub_ids:
+                    script = self.get_sub_test_script(script_id)
+                    if script:
+                        sub_script_cache[script_id] = script["name"]
+
+                for st in subtests:
+                    st_name = sub_script_cache.get(
+                        st.get("sub_test_script_id", ""), ""
+                    )
+                    if st_name != test_name:
+                        continue
+                    resolved_suite = suite_name
+                    history.append({
+                        "session_id": sid,
+                        "submission": sess.get("submission", ""),
+                        "test_host": sess.get("test_host", ""),
+                        "test_name": sess.get("test_name", ""),
+                        "suite": suite_name,
+                        "status": st["status"],
+                        "error": st.get("error", ""),
+                        "duration": st.get("duration"),
+                        "test_set_id": ts["id"],
+                    })
+
+        # Sort by submission date
+        history.sort(key=lambda x: x["submission"])
+        return history, resolved_suite
+
+    # -- Failure aggregation --
+
+    def get_top_failures(
+        self,
+        trigger_job: str,
+        from_date: str,
+        to_date: str,
+        max_sessions: int = 50,
+    ) -> tuple[list[dict[str, Any]], int, int]:
+        """Aggregate most common subtest failures for a branch.
+
+        Args:
+            trigger_job: Branch name (e.g. "lustre-master").
+            from_date: Start date (yyyy-mm-dd).
+            to_date: End date (yyyy-mm-dd).
+            max_sessions: Max sessions to examine.
+
+        Returns:
+            (failures_list, sessions_examined, sessions_total)
+            where failures_list is sorted by count descending, each
+            entry has keys: test_name, suite, count, sessions,
+            error_sample, example_session_id, example_test_set_id.
+        """
+        params: dict[str, Any] = {
+            "trigger_job": trigger_job,
+            "from": from_date,
+            "to": to_date,
+            "test_sets_failed": "true",
+        }
+        sessions = self.get_sessions(params, max_records=max_sessions)
+        sessions_total = len(sessions)
+
+        # Map: (suite_name, subtest_name) -> aggregation data
+        agg: dict[tuple[str, str], dict[str, Any]] = {}
+
+        # Cache for script name lookups
+        set_script_cache: dict[str, str] = {}
+        sub_script_cache: dict[str, str] = {}
+
+        for sess in sessions:
+            sid = sess["id"]
+            test_sets = self.get_test_sets(sid)
+            set_names = self.resolve_test_set_names(test_sets)
+            set_script_cache.update(set_names)
+
+            failed_sets = [
+                ts for ts in test_sets
+                if ts["status"] in ("FAIL", "CRASH", "ABORT", "TIMEOUT")
+            ]
+
+            for ts in failed_sets:
+                suite = set_names.get(
+                    ts.get("test_set_script_id", ""), "unknown"
+                )
+                subtests = self.get_subtests(test_set_id=ts["id"])
+
+                # Batch-resolve subtest names (use cache)
+                new_ids = {
+                    st["sub_test_script_id"]
+                    for st in subtests
+                    if "sub_test_script_id" in st
+                    and st["sub_test_script_id"] not in sub_script_cache
+                }
+                for script_id in new_ids:
+                    script = self.get_sub_test_script(script_id)
+                    if script:
+                        sub_script_cache[script_id] = script["name"]
+
+                for st in subtests:
+                    if st["status"] not in (
+                        "FAIL", "CRASH", "ABORT", "TIMEOUT",
+                    ):
+                        continue
+                    st_name = sub_script_cache.get(
+                        st.get("sub_test_script_id", ""),
+                        f"order_{st.get('order', '?')}",
+                    )
+                    key = (suite, st_name)
+                    if key not in agg:
+                        agg[key] = {
+                            "test_name": st_name,
+                            "suite": suite,
+                            "count": 0,
+                            "sessions": set(),
+                            "statuses": {},
+                            "error_sample": "",
+                            "example_session_id": "",
+                            "example_test_set_id": "",
+                        }
+                    entry = agg[key]
+                    entry["count"] += 1
+                    entry["sessions"].add(sid)
+                    status = st["status"]
+                    entry["statuses"][status] = (
+                        entry["statuses"].get(status, 0) + 1
+                    )
+                    err = st.get("error", "")
+                    if err and not entry["error_sample"]:
+                        entry["error_sample"] = err[:300]
+                    if not entry["example_session_id"]:
+                        entry["example_session_id"] = sid
+                        entry["example_test_set_id"] = ts["id"]
+
+        # Convert sets to counts and sort
+        result = []
+        for entry in agg.values():
+            entry["session_count"] = len(entry["sessions"])
+            del entry["sessions"]
+            result.append(entry)
+        result.sort(key=lambda x: x["count"], reverse=True)
+        return result, sessions_total, sessions_total
 
     # -- Retest (web form, not REST API) --
 
