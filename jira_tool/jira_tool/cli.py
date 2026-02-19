@@ -542,6 +542,423 @@ def issue_link_create(ctx: click.Context, key: str, target_key: str, link_type: 
         sys.exit(handle_error(e, command, pretty))
 
 
+@main.command("delete-comment")
+@click.argument("key")
+@click.argument("comment_id")
+@click.pass_context
+def issue_comment_delete(ctx: click.Context, key: str, comment_id: str) -> None:
+    """
+    Delete a comment from an issue.
+
+    KEY is the issue key (e.g., PROJ-123) or a JIRA URL.
+    COMMENT_ID is the numeric comment ID to delete.
+    """
+    command = "delete-comment"
+    pretty = ctx.obj.get("pretty", False)
+
+    try:
+        client = get_client(ctx)
+        key = extract_issue_key(key)
+
+        client.delete_comment(key, comment_id)
+
+        data = {
+            "issue_key": key,
+            "comment_id": comment_id,
+            "deleted": True,
+        }
+
+        envelope = success_response(data, command)
+        output_result(envelope, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except JiraToolError as e:
+        sys.exit(handle_error(e, command, pretty))
+    except ConfigError as e:
+        sys.exit(handle_error(e, command, pretty))
+
+
+@main.command("unlink")
+@click.argument("link_id")
+@click.pass_context
+def issue_unlink(ctx: click.Context, link_id: str) -> None:
+    """
+    Remove a link between two issues.
+
+    LINK_ID is the numeric link ID (from 'jira links' output).
+    """
+    command = "unlink"
+    pretty = ctx.obj.get("pretty", False)
+
+    try:
+        client = get_client(ctx)
+
+        client.delete_link(link_id)
+
+        data = {
+            "link_id": link_id,
+            "deleted": True,
+        }
+
+        envelope = success_response(data, command)
+        output_result(envelope, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except JiraToolError as e:
+        sys.exit(handle_error(e, command, pretty))
+    except ConfigError as e:
+        sys.exit(handle_error(e, command, pretty))
+
+
+@main.command("link-types")
+@click.pass_context
+def issue_link_types(ctx: click.Context) -> None:
+    """
+    List available issue link types.
+
+    Shows the valid type names for use with 'jira link --type'.
+    """
+    command = "link-types"
+    pretty = ctx.obj.get("pretty", False)
+
+    try:
+        client = get_client(ctx)
+
+        raw = client.get_link_types()
+        link_types = []
+        for lt in raw.get("issueLinkTypes", []):
+            link_types.append({
+                "id": lt.get("id"),
+                "name": lt.get("name"),
+                "inward": lt.get("inward"),
+                "outward": lt.get("outward"),
+            })
+
+        data = {
+            "total": len(link_types),
+            "link_types": link_types,
+        }
+
+        envelope = success_response(data, command)
+        output_result(envelope, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except JiraToolError as e:
+        sys.exit(handle_error(e, command, pretty))
+    except ConfigError as e:
+        sys.exit(handle_error(e, command, pretty))
+
+
+@main.command("add-label")
+@click.argument("key")
+@click.argument("labels", nargs=-1, required=True)
+@click.pass_context
+def issue_add_label(ctx: click.Context, key: str, labels: tuple[str, ...]) -> None:
+    """
+    Add one or more labels to an issue.
+
+    KEY is the issue key (e.g., PROJ-123) or a JIRA URL.
+    LABELS are the label names to add.
+    """
+    command = "add-label"
+    pretty = ctx.obj.get("pretty", False)
+
+    try:
+        client = get_client(ctx)
+        key = extract_issue_key(key)
+
+        client.add_labels(key, list(labels))
+
+        data = {
+            "issue_key": key,
+            "labels_added": list(labels),
+        }
+
+        envelope = success_response(data, command)
+        output_result(envelope, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except JiraToolError as e:
+        sys.exit(handle_error(e, command, pretty))
+    except ConfigError as e:
+        sys.exit(handle_error(e, command, pretty))
+
+
+@main.command("remove-label")
+@click.argument("key")
+@click.argument("labels", nargs=-1, required=True)
+@click.pass_context
+def issue_remove_label(ctx: click.Context, key: str, labels: tuple[str, ...]) -> None:
+    """
+    Remove one or more labels from an issue.
+
+    KEY is the issue key (e.g., PROJ-123) or a JIRA URL.
+    LABELS are the label names to remove.
+    """
+    command = "remove-label"
+    pretty = ctx.obj.get("pretty", False)
+
+    try:
+        client = get_client(ctx)
+        key = extract_issue_key(key)
+
+        client.remove_labels(key, list(labels))
+
+        data = {
+            "issue_key": key,
+            "labels_removed": list(labels),
+        }
+
+        envelope = success_response(data, command)
+        output_result(envelope, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except JiraToolError as e:
+        sys.exit(handle_error(e, command, pretty))
+    except ConfigError as e:
+        sys.exit(handle_error(e, command, pretty))
+
+
+@main.command("components")
+@click.argument("project_key")
+@click.pass_context
+def project_components(ctx: click.Context, project_key: str) -> None:
+    """
+    List components for a project.
+
+    PROJECT_KEY is the project key (e.g., LU, EX).
+    """
+    command = "components"
+    pretty = ctx.obj.get("pretty", False)
+
+    try:
+        client = get_client(ctx)
+
+        raw = client.get_project_components(project_key)
+        components = []
+        for c in raw:
+            components.append({
+                "id": c.get("id"),
+                "name": c.get("name"),
+                "description": c.get("description"),
+            })
+
+        data = {
+            "project_key": project_key,
+            "total": len(components),
+            "components": components,
+        }
+
+        envelope = success_response(data, command)
+        output_result(envelope, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except JiraToolError as e:
+        sys.exit(handle_error(e, command, pretty))
+    except ConfigError as e:
+        sys.exit(handle_error(e, command, pretty))
+
+
+@main.command("set-component")
+@click.argument("key")
+@click.argument("components", nargs=-1, required=True)
+@click.pass_context
+def issue_set_component(ctx: click.Context, key: str, components: tuple[str, ...]) -> None:
+    """
+    Set components on an issue (replaces existing).
+
+    KEY is the issue key (e.g., PROJ-123) or a JIRA URL.
+    COMPONENTS are the component names to set.
+    """
+    command = "set-component"
+    pretty = ctx.obj.get("pretty", False)
+
+    try:
+        client = get_client(ctx)
+        key = extract_issue_key(key)
+
+        client.set_components(key, list(components))
+
+        data = {
+            "issue_key": key,
+            "components": list(components),
+        }
+
+        envelope = success_response(data, command)
+        output_result(envelope, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except JiraToolError as e:
+        sys.exit(handle_error(e, command, pretty))
+    except ConfigError as e:
+        sys.exit(handle_error(e, command, pretty))
+
+
+@main.command("versions")
+@click.argument("project_key")
+@click.pass_context
+def project_versions(ctx: click.Context, project_key: str) -> None:
+    """
+    List versions for a project.
+
+    PROJECT_KEY is the project key (e.g., LU, EX).
+    """
+    command = "versions"
+    pretty = ctx.obj.get("pretty", False)
+
+    try:
+        client = get_client(ctx)
+
+        raw = client.get_project_versions(project_key)
+        versions = []
+        for v in raw:
+            versions.append({
+                "id": v.get("id"),
+                "name": v.get("name"),
+                "released": v.get("released", False),
+                "archived": v.get("archived", False),
+                "release_date": v.get("releaseDate"),
+            })
+
+        data = {
+            "project_key": project_key,
+            "total": len(versions),
+            "versions": versions,
+        }
+
+        envelope = success_response(data, command)
+        output_result(envelope, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except JiraToolError as e:
+        sys.exit(handle_error(e, command, pretty))
+    except ConfigError as e:
+        sys.exit(handle_error(e, command, pretty))
+
+
+@main.command("set-fix-version")
+@click.argument("key")
+@click.argument("versions", nargs=-1, required=True)
+@click.pass_context
+def issue_set_fix_version(ctx: click.Context, key: str, versions: tuple[str, ...]) -> None:
+    """
+    Set fix versions on an issue (replaces existing).
+
+    KEY is the issue key (e.g., PROJ-123) or a JIRA URL.
+    VERSIONS are the version names to set.
+    """
+    command = "set-fix-version"
+    pretty = ctx.obj.get("pretty", False)
+
+    try:
+        client = get_client(ctx)
+        key = extract_issue_key(key)
+
+        client.set_fix_versions(key, list(versions))
+
+        data = {
+            "issue_key": key,
+            "fix_versions": list(versions),
+        }
+
+        envelope = success_response(data, command)
+        output_result(envelope, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except JiraToolError as e:
+        sys.exit(handle_error(e, command, pretty))
+    except ConfigError as e:
+        sys.exit(handle_error(e, command, pretty))
+
+
+@main.command("create-subtask")
+@click.argument("parent_key")
+@click.option("--summary", required=True, help="Subtask summary")
+@click.option("--description", default=None, help="Subtask description")
+@click.pass_context
+def issue_create_subtask(ctx: click.Context, parent_key: str, summary: str, description: str | None) -> None:
+    """
+    Create a subtask under a parent issue.
+
+    PARENT_KEY is the parent issue key (e.g., PROJ-123).
+    """
+    command = "create-subtask"
+    pretty = ctx.obj.get("pretty", False)
+
+    try:
+        client = get_client(ctx)
+        parent_key = extract_issue_key(parent_key)
+
+        # Get the parent's project key
+        project_key = parent_key.rsplit("-", 1)[0]
+
+        result = client.create_issue(
+            project_key=project_key,
+            issue_type="Sub-task",
+            summary=summary,
+            description=description,
+            fields={"parent": {"key": parent_key}},
+        )
+
+        data = {
+            "key": result.get("key"),
+            "id": result.get("id"),
+            "parent_key": parent_key,
+        }
+
+        envelope = success_response(data, command)
+        output_result(envelope, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except JiraToolError as e:
+        sys.exit(handle_error(e, command, pretty))
+    except ConfigError as e:
+        sys.exit(handle_error(e, command, pretty))
+
+
+@main.command("subtasks")
+@click.argument("key")
+@click.pass_context
+def issue_subtasks(ctx: click.Context, key: str) -> None:
+    """
+    List subtasks of an issue.
+
+    KEY is the issue key (e.g., PROJ-123) or a JIRA URL.
+    """
+    command = "subtasks"
+    pretty = ctx.obj.get("pretty", False)
+
+    try:
+        client = get_client(ctx)
+        key = extract_issue_key(key)
+
+        raw_issue = client.get_issue(key, fields=["subtasks"])
+        raw_subtasks = raw_issue.get("fields", {}).get("subtasks", [])
+
+        subtasks = []
+        for st in raw_subtasks:
+            subtasks.append({
+                "key": st.get("key"),
+                "summary": st.get("fields", {}).get("summary"),
+                "status": st.get("fields", {}).get("status", {}).get("name"),
+            })
+
+        data = {
+            "issue_key": key,
+            "total": len(subtasks),
+            "subtasks": subtasks,
+        }
+
+        envelope = success_response(data, command)
+        output_result(envelope, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except JiraToolError as e:
+        sys.exit(handle_error(e, command, pretty))
+    except ConfigError as e:
+        sys.exit(handle_error(e, command, pretty))
+
+
 @main.command("transitions")
 @click.argument("key")
 @click.pass_context
@@ -846,6 +1263,7 @@ def issue_links(ctx: click.Context, key: str) -> None:
                 continue
 
             links.append({
+                "id": link.get("id"),
                 "direction": direction,
                 "relationship": relationship,
                 "link_type": link_type.get("name"),

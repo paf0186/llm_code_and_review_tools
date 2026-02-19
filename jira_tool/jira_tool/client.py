@@ -497,6 +497,20 @@ class JiraClient:
             context=f"{key}/comment/{comment_id}",
         )
 
+    def delete_comment(self, key: str, comment_id: str) -> None:
+        """
+        Delete a comment from an issue.
+
+        Args:
+            key: Issue key
+            comment_id: Comment ID to delete
+        """
+        self._request(
+            "DELETE",
+            f"issue/{key}/comment/{comment_id}",
+            context=f"{key}/comment/{comment_id}",
+        )
+
     # =========================================================================
     # Issue Link Operations
     # =========================================================================
@@ -520,6 +534,120 @@ class JiraClient:
             },
             context=f"link {inward_key} -> {outward_key}",
         )
+
+    def delete_link(self, link_id: str) -> None:
+        """
+        Delete an issue link.
+
+        Args:
+            link_id: Link ID (from 'links' command output)
+        """
+        self._request(
+            "DELETE",
+            f"issueLink/{link_id}",
+            context=f"issueLink/{link_id}",
+        )
+
+    def get_link_types(self) -> dict[str, Any]:
+        """
+        Get available issue link types.
+
+        Returns:
+            Dict with issueLinkTypes list
+        """
+        return self._request("GET", "issueLinkType")
+
+    # =========================================================================
+    # Label Operations
+    # =========================================================================
+
+    def add_labels(self, key: str, labels: list[str]) -> dict[str, Any]:
+        """
+        Add labels to an issue without replacing existing ones.
+
+        Args:
+            key: Issue key
+            labels: Labels to add
+        """
+        body = {
+            "update": {
+                "labels": [{"add": label} for label in labels],
+            }
+        }
+        return self._request("PUT", f"issue/{key}", json_data=body, context=key)
+
+    def remove_labels(self, key: str, labels: list[str]) -> dict[str, Any]:
+        """
+        Remove labels from an issue.
+
+        Args:
+            key: Issue key
+            labels: Labels to remove
+        """
+        body = {
+            "update": {
+                "labels": [{"remove": label} for label in labels],
+            }
+        }
+        return self._request("PUT", f"issue/{key}", json_data=body, context=key)
+
+    # =========================================================================
+    # Component and Version Operations
+    # =========================================================================
+
+    def get_project_components(self, project_key: str) -> list[dict[str, Any]]:
+        """
+        Get components for a project.
+
+        Args:
+            project_key: Project key (e.g., "LU")
+
+        Returns:
+            List of component dicts
+        """
+        return self._request("GET", f"project/{project_key}/components", context=project_key)
+
+    def get_project_versions(self, project_key: str) -> list[dict[str, Any]]:
+        """
+        Get versions for a project.
+
+        Args:
+            project_key: Project key (e.g., "LU")
+
+        Returns:
+            List of version dicts
+        """
+        return self._request("GET", f"project/{project_key}/versions", context=project_key)
+
+    def set_components(self, key: str, components: list[str]) -> dict[str, Any]:
+        """
+        Set components on an issue (replaces existing).
+
+        Args:
+            key: Issue key
+            components: Component names to set
+        """
+        body = {
+            "fields": {
+                "components": [{"name": c} for c in components],
+            }
+        }
+        return self._request("PUT", f"issue/{key}", json_data=body, context=key)
+
+    def set_fix_versions(self, key: str, versions: list[str]) -> dict[str, Any]:
+        """
+        Set fix versions on an issue (replaces existing).
+
+        Args:
+            key: Issue key
+            versions: Version names to set
+        """
+        body = {
+            "fields": {
+                "fixVersions": [{"name": v} for v in versions],
+            }
+        }
+        return self._request("PUT", f"issue/{key}", json_data=body, context=key)
 
     # =========================================================================
     # Worklog Operations
