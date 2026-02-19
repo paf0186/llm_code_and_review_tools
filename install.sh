@@ -65,11 +65,12 @@ install_tools() {
     $PYTHON -m pip install -q -e "$SCRIPT_DIR/jira_tool"
     echo -e "${GREEN}✓${NC} jira installed"
 
-    # Install gerrit_comments
+    # Install gerrit_cli
     echo ""
-    echo "Installing gerrit-comments..."
-    $PYTHON -m pip install -q -e "$SCRIPT_DIR/gerrit_comments"
-    echo -e "${GREEN}✓${NC} gerrit-comments installed"
+    echo "Installing gerrit-cli..."
+    $PYTHON -m pip uninstall -y gerrit-comments 2>/dev/null || true
+    $PYTHON -m pip install -q -e "$SCRIPT_DIR/gerrit_cli"
+    echo -e "${GREEN}✓${NC} gerrit-cli installed"
 
     # Install maloo_tool
     echo ""
@@ -99,19 +100,19 @@ install_tools() {
     echo ""
     echo "Installed tools:"
     echo "  jira            - JIRA issue tracking"
-    echo "  gerrit-comments - Gerrit code review"
+    echo "  gerrit            - Gerrit code review (also: gc)"
     echo "  maloo           - Maloo test results"
     echo "  bd              - Beads task tracking"
     echo ""
     echo "Verify installation:"
     echo "  jira --help"
-    echo "  gerrit-comments --help"
+    echo "  gerrit --help"
     echo "  maloo --help"
     echo "  bd --help"
     echo ""
     echo "Configuration:"
     echo "  JIRA:   Set JIRA_SERVER and JIRA_TOKEN env vars"
-    echo "  Gerrit: Set GERRIT_URL, GERRIT_USER, GERRIT_PASS env vars"
+    echo "  Gerrit: Set GERRIT_URL, GERRIT_USER, GERRIT_PASS env vars (config dir: ~/.config/gerrit-cli)"
     echo "  Maloo:  Set MALOO_USER and MALOO_PASS env vars"
     echo "  Beads:  Run 'bd init --stealth' in your project"
     echo ""
@@ -132,7 +133,8 @@ uninstall_tools() {
     echo "Uninstalling jira-tool..."
     $PYTHON -m pip uninstall -y jira-tool 2>/dev/null || true
 
-    echo "Uninstalling gerrit-comments..."
+    echo "Uninstalling gerrit-cli..."
+    $PYTHON -m pip uninstall -y gerrit-cli 2>/dev/null || true
     $PYTHON -m pip uninstall -y gerrit-comments 2>/dev/null || true
 
     echo "Uninstalling maloo-tool..."

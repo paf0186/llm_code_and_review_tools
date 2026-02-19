@@ -19,7 +19,7 @@ def _build_meta(tool: str, command: str) -> dict[str, str]:
     """Build metadata block for response envelope.
     
     Args:
-        tool: The tool name (e.g., "jira", "gerrit-comments")
+        tool: The tool name (e.g., "jira", "gerrit-cli")
         command: The command that was executed (e.g., "issue.get", "extract")
     """
     return {
@@ -40,7 +40,7 @@ def success_response(
 
     Args:
         data: The response data payload
-        tool: The tool name (e.g., "jira", "gerrit-comments")
+        tool: The tool name (e.g., "jira", "gerrit-cli")
         command: The command that was executed (e.g., "issue.get", "extract")
         next_actions: Optional list of suggested follow-up commands.
             Helps LLMs discover what to do next without consulting docs.
@@ -70,7 +70,7 @@ def error_response(error: HasToDict, tool: str, command: str) -> dict[str, Any]:
 
     Args:
         error: An error object with a to_dict() method
-        tool: The tool name (e.g., "jira", "gerrit-comments")
+        tool: The tool name (e.g., "jira", "gerrit-cli")
         command: The command that was executed
 
     Returns:
@@ -97,7 +97,7 @@ def error_response_from_dict(
     Args:
         code: Error code string
         message: Human-readable error message
-        tool: The tool name (e.g., "jira", "gerrit-comments")
+        tool: The tool name (e.g., "jira", "gerrit-cli")
         command: The command that was executed
         http_status: Optional HTTP status code
         details: Optional additional error details

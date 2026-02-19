@@ -50,8 +50,8 @@ class TestBuildMeta:
 
     def test_meta_tool_and_command_preserved(self):
         """Tool and command should be preserved exactly."""
-        meta = _build_meta("gerrit-comments", "extract")
-        assert meta["tool"] == "gerrit-comments"
+        meta = _build_meta("gerrit-cli", "extract")
+        assert meta["tool"] == "gerrit-cli"
         assert meta["command"] == "extract"
 
 

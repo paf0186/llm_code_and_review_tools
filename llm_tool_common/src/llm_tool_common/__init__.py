@@ -1,7 +1,7 @@
 """Shared utilities for LLM-focused CLI tools.
 
 This package provides common functionality shared between tools like
-jira_tool and gerrit_comments, including:
+jira_tool and gerrit_cli, including:
 - Response envelope helpers for standardized JSON output
 - Base error classes and exit codes
 """
