@@ -466,6 +466,82 @@ def issue_comment_add(ctx: click.Context, key: str, body: str) -> None:
         sys.exit(handle_error(e, command, pretty))
 
 
+@main.command("edit-comment")
+@click.argument("key")
+@click.argument("comment_id")
+@click.argument("body")
+@click.pass_context
+def issue_comment_edit(ctx: click.Context, key: str, comment_id: str, body: str) -> None:
+    """
+    Edit an existing comment on an issue.
+
+    KEY is the issue key (e.g., PROJ-123) or a JIRA URL.
+    COMMENT_ID is the numeric comment ID to edit.
+    BODY is the new comment text.
+    """
+    command = "edit-comment"
+    pretty = ctx.obj.get("pretty", False)
+
+    try:
+        client = get_client(ctx)
+        key = extract_issue_key(key)
+
+        raw_comment = client.edit_comment(key, comment_id, body)
+
+        comment_data = {
+            "issue_key": key,
+            "comment": _normalize_comment(raw_comment),
+        }
+
+        envelope = success_response(comment_data, command)
+        output_result(envelope, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except JiraToolError as e:
+        sys.exit(handle_error(e, command, pretty))
+    except ConfigError as e:
+        sys.exit(handle_error(e, command, pretty))
+
+
+@main.command("link")
+@click.argument("key")
+@click.argument("target_key")
+@click.option("--type", "link_type", default="Related",
+              help="Link type name (e.g., Related, Blocks, Duplicate). Default: Related")
+@click.pass_context
+def issue_link_create(ctx: click.Context, key: str, target_key: str, link_type: str) -> None:
+    """
+    Create a link between two issues.
+
+    KEY is the source issue key (e.g., PROJ-123) or a JIRA URL.
+    TARGET_KEY is the destination issue key.
+    """
+    command = "link"
+    pretty = ctx.obj.get("pretty", False)
+
+    try:
+        client = get_client(ctx)
+        key = extract_issue_key(key)
+        target_key = extract_issue_key(target_key)
+
+        client.create_link(key, target_key, link_type)
+
+        link_data = {
+            "source_key": key,
+            "target_key": target_key,
+            "link_type": link_type,
+        }
+
+        envelope = success_response(link_data, command)
+        output_result(envelope, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except JiraToolError as e:
+        sys.exit(handle_error(e, command, pretty))
+    except ConfigError as e:
+        sys.exit(handle_error(e, command, pretty))
+
+
 @main.command("transitions")
 @click.argument("key")
 @click.pass_context

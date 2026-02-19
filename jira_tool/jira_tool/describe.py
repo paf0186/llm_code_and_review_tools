@@ -89,6 +89,35 @@ def get_tool_description() -> ToolDescription:
                 next_actions=["get", "transition"],
             ),
             Command(
+                name="edit-comment",
+                description="Edit an existing comment on an issue",
+                usage='jira edit-comment <KEY> <COMMENT_ID> "<BODY>"',
+                arguments=[
+                    Argument(name="key", description="Issue key or JIRA URL", required=True),
+                    Argument(name="comment_id", description="Numeric comment ID to edit", required=True),
+                    Argument(name="body", description="New comment text", required=True),
+                ],
+                examples=['jira edit-comment PROJ-123 12345 "Updated comment text"'],
+                output_fields=["issue_key", "comment.id", "comment.body", "comment.author", "comment.updated"],
+                next_actions=["get", "comments"],
+            ),
+            Command(
+                name="link",
+                description="Create a link between two issues",
+                usage="jira link <KEY> <TARGET_KEY> [--type TYPE]",
+                arguments=[
+                    Argument(name="key", description="Source issue key or JIRA URL", required=True),
+                    Argument(name="target_key", description="Target issue key", required=True),
+                    Argument(name="--type", description="Link type name (Related, Blocks, Duplicate, etc.)", default="Related"),
+                ],
+                examples=[
+                    "jira link PROJ-123 PROJ-456",
+                    "jira link PROJ-123 PROJ-456 --type Blocks",
+                ],
+                output_fields=["source_key", "target_key", "link_type"],
+                next_actions=["links", "get"],
+            ),
+            Command(
                 name="transitions",
                 description="List available status transitions for an issue",
                 usage="jira transitions <KEY>",

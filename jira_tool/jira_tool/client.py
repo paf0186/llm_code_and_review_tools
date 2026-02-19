@@ -478,6 +478,49 @@ class JiraClient:
             context=key,
         )
 
+    def edit_comment(self, key: str, comment_id: str, body: str) -> dict[str, Any]:
+        """
+        Edit an existing comment on an issue.
+
+        Args:
+            key: Issue key
+            comment_id: Comment ID to edit
+            body: New comment body text
+
+        Returns:
+            Updated comment data
+        """
+        return self._request(
+            "PUT",
+            f"issue/{key}/comment/{comment_id}",
+            json_data={"body": body},
+            context=f"{key}/comment/{comment_id}",
+        )
+
+    # =========================================================================
+    # Issue Link Operations
+    # =========================================================================
+
+    def create_link(self, inward_key: str, outward_key: str, link_type: str = "Related") -> None:
+        """
+        Create a link between two issues.
+
+        Args:
+            inward_key: Inward issue key (e.g., "is related to")
+            outward_key: Outward issue key (e.g., "relates to")
+            link_type: Link type name (e.g., Related, Blocks, Duplicate)
+        """
+        self._request(
+            "POST",
+            "issueLink",
+            json_data={
+                "type": {"name": link_type},
+                "inwardIssue": {"key": inward_key},
+                "outwardIssue": {"key": outward_key},
+            },
+            context=f"link {inward_key} -> {outward_key}",
+        )
+
     # =========================================================================
     # Worklog Operations
     # =========================================================================
