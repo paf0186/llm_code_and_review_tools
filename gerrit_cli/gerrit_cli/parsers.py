@@ -682,6 +682,32 @@ def add_info_parser(subparsers):
     )
     parser.add_argument("url", help="Gerrit change URL or number")
     parser.add_argument(
+        "--show-bots",
+        action="store_true",
+        help="Include bot accounts in reviewer list (filtered by default)",
+    )
+    parser.add_argument(
+        "--pretty", "-p",
+        action="store_true",
+        help="Pretty-print JSON output",
+    )
+    return parser
+
+
+def add_watch_parser(subparsers):
+    """Add the 'watch' subcommand parser."""
+    parser = subparsers.add_parser(
+        "watch",
+        help="Check CI status on a list of watched patches",
+        description="Read a JSON file of watched patches and run Maloo "
+                    "triage on each one. The JSON file should be an array "
+                    "of objects with at least a 'gerrit_url' field.",
+    )
+    parser.add_argument(
+        "file",
+        help="JSON file with watched patches (array of {gerrit_url, ...})",
+    )
+    parser.add_argument(
         "--pretty", "-p",
         action="store_true",
         help="Pretty-print JSON output",
@@ -695,14 +721,15 @@ def add_maloo_parser(subparsers):
         "maloo",
         help="Triage Maloo test results for a change",
         description="Parse Maloo test messages and show a summary "
-                    "of enforced/optional pass/fail results.",
+                    "of enforced/optional pass/fail results. "
+                    "Accepts multiple URLs for batch mode.",
     )
-    parser.add_argument("url", help="Gerrit change URL or number")
+    parser.add_argument("url", nargs="+", help="Gerrit change URL(s) or number(s)")
     parser.add_argument(
         "--patchset", "-r",
         type=int,
         default=None,
-        help="Patchset number (default: latest)",
+        help="Patchset number (default: latest). Only for single-URL mode.",
     )
     parser.add_argument(
         "--pretty", "-p",
@@ -959,6 +986,7 @@ def setup_parsers(subparsers, handlers):
 
     # Test result triage
     add_maloo_parser(subparsers).set_defaults(func=handlers['maloo'])
+    add_watch_parser(subparsers).set_defaults(func=handlers['watch'])
 
     # Change overview
     add_info_parser(subparsers).set_defaults(func=handlers['info'])
