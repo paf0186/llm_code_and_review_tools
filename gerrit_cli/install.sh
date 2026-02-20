@@ -222,7 +222,7 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
 fi
 
 echo ""
-echo "The 'gerrit' command is now available (also: 'gc', 'gerrit-comments')."
+echo "The 'gerrit' command is now available (also: 'gc', 'gerrit-cli')."
 echo ""
 echo "Configuration:"
 if [ -f "$CONFIG_DIR/.env" ]; then

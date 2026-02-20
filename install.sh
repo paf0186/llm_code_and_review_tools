@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Unified installer for LLM Code and Review Tools
-# Installs: jira, gerrit-comments, and beads (bd)
+# Installs: jira, gerrit-cli, and beads (bd)
 #
 
 set -e
@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
     echo "Usage: $0 [OPTIONS]"
     echo ""
-    echo "Install LLM code and review tools (jira, gerrit-comments, beads)"
+    echo "Install LLM code and review tools (jira, gerrit-cli, beads)"
     echo ""
     echo "Options:"
     echo "  --help, -h     Show this help message"

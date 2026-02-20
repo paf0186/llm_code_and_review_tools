@@ -1,6 +1,5 @@
 """CLI entry point for Maloo test results tool."""
 
-import json
 import re
 import sys
 from datetime import datetime, timedelta, timezone
@@ -109,11 +108,9 @@ def session(session_url: str, pretty: bool) -> None:
     next_actions = []
     failed = [s for s in suites if s["status"] == "FAIL"]
     if failed:
-        for f in failed[:3]:
-            next_actions.append(
-                f"maloo failures {sid} -- show failed subtests"
-            )
-            break
+        next_actions.append(
+            f"maloo failures {sid} -- show failed subtests"
+        )
         for f in failed[:3]:
             next_actions.append(
                 f"maloo subtests {f['id']} -- details for {f['name']}"

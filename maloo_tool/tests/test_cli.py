@@ -552,6 +552,36 @@ class TestRetest:
         assert env["data"]["bug_id"] == "LU-19487"
 
 
+# -- logs command --
+
+
+class TestLogs:
+    def test_logs_zip_archive(self, runner, mock_client):
+        """Logs command should download and extract a zip archive."""
+        import io
+        import zipfile
+
+        # Create a small zip in memory
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("console.log", "test output line 1\ntest output line 2\n")
+        mock_client.download_logs.return_value = buf.getvalue()
+
+        result = runner.invoke(main, ["logs", TSID_1, "--output-dir", "/tmp/test_maloo_logs_unit"])
+        env = _parse_output(result)
+        assert env["ok"] is True
+        assert env["data"]["test_set_id"] == TSID_1
+        assert len(env["data"]["files"]) >= 1
+
+    def test_logs_download_error(self, runner, mock_client):
+        """Logs command should handle download failures."""
+        mock_client.download_logs.side_effect = Exception("connection timeout")
+        result = runner.invoke(main, ["logs", TSID_1])
+        env = json.loads(result.output)
+        assert env["ok"] is False
+        assert result.exit_code != 0
+
+
 # -- Client unit tests --
 
 

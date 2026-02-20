@@ -121,5 +121,5 @@ _gerrit_completions() {
 }
 
 complete -F _gerrit_completions gerrit
-complete -F _gerrit_completions gerrit-comments
+complete -F _gerrit_completions gerrit-cli
 complete -F _gerrit_completions gc

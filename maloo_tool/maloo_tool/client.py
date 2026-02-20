@@ -533,7 +533,7 @@ class MalooClient:
             del entry["sessions"]
             result.append(entry)
         result.sort(key=lambda x: x["count"], reverse=True)
-        return result, sessions_total, sessions_total
+        return result, len(sessions), sessions_total
 
     # -- Web session auth (for non-API endpoints) --
 
