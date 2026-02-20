@@ -56,6 +56,7 @@ class CommentExtractor:
         context_lines: int = 3,
         exclude_ci_bots: bool = True,
         exclude_lint_bots: bool = False,
+        include_system: bool = False,
     ) -> ExtractedComments:
         """Extract comments from a Gerrit URL.
 
@@ -68,6 +69,8 @@ class CommentExtractor:
                 (Maloo, Jenkins, etc.). Default True.
             exclude_lint_bots: Whether to exclude messages from lint/style checkers
                 (checkpatch, etc.). Default False.
+            include_system: Whether to include system messages like
+                "Uploaded patch set N", rebases, topic changes. Default False.
 
         Returns:
             ExtractedComments with all comment data
@@ -86,6 +89,7 @@ class CommentExtractor:
             context_lines=context_lines,
             exclude_ci_bots=exclude_ci_bots,
             exclude_lint_bots=exclude_lint_bots,
+            include_system=include_system,
         )
 
     def extract_from_change(
@@ -96,6 +100,7 @@ class CommentExtractor:
         context_lines: int = 3,
         exclude_ci_bots: bool = True,
         exclude_lint_bots: bool = False,
+        include_system: bool = False,
     ) -> ExtractedComments:
         """Extract comments from a Gerrit change number.
 
@@ -108,6 +113,8 @@ class CommentExtractor:
                 (Maloo, Jenkins, etc.). Default True.
             exclude_lint_bots: Whether to exclude messages from lint/style checkers
                 (checkpatch, etc.). Default False.
+            include_system: Whether to include system messages like
+                "Uploaded patch set N", rebases, topic changes. Default False.
 
         Returns:
             ExtractedComments with all comment data
@@ -136,6 +143,7 @@ class CommentExtractor:
             current_patchset=current_patchset,
             exclude_ci_bots=exclude_ci_bots,
             exclude_lint_bots=exclude_lint_bots,
+            include_system=include_system,
         )
 
         # Build comment objects and organize into threads
@@ -202,6 +210,7 @@ class CommentExtractor:
         current_patchset: int,
         exclude_ci_bots: bool = True,
         exclude_lint_bots: bool = False,
+        include_system: bool = False,
     ) -> list[ReviewMessage]:
         """Parse raw API messages into ReviewMessage objects.
 
@@ -213,6 +222,7 @@ class CommentExtractor:
             current_patchset: The current patchset number
             exclude_ci_bots: Whether to exclude CI/build system messages
             exclude_lint_bots: Whether to exclude lint/style checker messages
+            include_system: Whether to include system messages
         """
         messages = []
         for raw_msg in raw_messages:
@@ -221,23 +231,24 @@ class CommentExtractor:
             if not msg_text:
                 continue
 
-            # Skip auto-generated "Uploaded patch set" messages
-            if msg_text.startswith("Uploaded patch set"):
-                continue
+            if not include_system:
+                # Skip auto-generated "Uploaded patch set" messages
+                if msg_text.startswith("Uploaded patch set"):
+                    continue
 
-            # Skip other common auto-generated messages
-            if msg_text.startswith("Patch Set ") and any(
-                phrase in msg_text for phrase in [
-                    "was rebased",
-                    "Cherry Picked from",
-                    "Commit message was updated",
-                ]
-            ):
-                continue
+                # Skip other common auto-generated messages
+                if msg_text.startswith("Patch Set ") and any(
+                    phrase in msg_text for phrase in [
+                        "was rebased",
+                        "Cherry Picked from",
+                        "Commit message was updated",
+                    ]
+                ):
+                    continue
 
-            # Skip topic set/removed messages (noise)
-            if msg_text.startswith("Topic set to") or msg_text.startswith("Topic ") and " removed" in msg_text:
-                continue
+                # Skip topic set/removed messages (noise)
+                if msg_text.startswith("Topic set to") or msg_text.startswith("Topic ") and " removed" in msg_text:
+                    continue
 
             # Skip messages that are just "(N comments)" with no substantive text
             # The actual comments are shown separately
@@ -396,6 +407,7 @@ def extract_comments(
     context_lines: int = 3,
     exclude_ci_bots: bool = True,
     exclude_lint_bots: bool = False,
+    include_system: bool = False,
 ) -> ExtractedComments:
     """Convenience function to extract comments from a Gerrit URL.
 
@@ -408,6 +420,8 @@ def extract_comments(
             (Maloo, Jenkins, etc.). Default True.
         exclude_lint_bots: Whether to exclude messages from lint/style checkers
             (checkpatch, Janitor Bot, etc.). Default False.
+        include_system: Whether to include system messages like
+            "Uploaded patch set N", rebases, topic changes. Default False.
 
     Returns:
         ExtractedComments with all comment data
@@ -420,4 +434,5 @@ def extract_comments(
         context_lines=context_lines,
         exclude_ci_bots=exclude_ci_bots,
         exclude_lint_bots=exclude_lint_bots,
+        include_system=include_system,
     )

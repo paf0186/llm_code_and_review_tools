@@ -184,11 +184,13 @@ def cmd_extract(args):
     fields = getattr(args, 'fields', None)
 
     try:
+        include_system = getattr(args, 'include_system', False)
         result = extract_comments(
             url=args.url,
             include_resolved=args.all,
             include_code_context=not args.no_context,
             context_lines=args.context_lines,
+            include_system=include_system,
         )
 
         if fields:

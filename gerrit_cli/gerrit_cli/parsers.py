@@ -52,6 +52,11 @@ def add_extract_parser(subparsers):
              "Available: index,file,line,message,author,resolved,patch_set,code_context. "
              "Example: --fields=index,file,message",
     )
+    parser.add_argument(
+        "--include-system",
+        action="store_true",
+        help="Include system messages (e.g. 'Uploaded patch set N', rebases, topic changes)",
+    )
     return parser
 
 
