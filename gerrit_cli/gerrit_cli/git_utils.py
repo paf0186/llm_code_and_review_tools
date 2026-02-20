@@ -1,4 +1,4 @@
-"""Git utility functions for gerrit-comments.
+"""Git utility functions for gerrit-cli.
 
 This module provides a clean interface for common git operations,
 abstracting away subprocess calls and error handling.

@@ -7,7 +7,7 @@ CLI tools designed for LLM agents to interact with code review and issue trackin
 | Tool | Purpose | Directory |
 |------|---------|-----------|
 | **jira** | JIRA issue tracking | [jira_tool/](jira_tool/) |
-| **gerrit-comments** | Gerrit code review comments | [gerrit_comments/](gerrit_comments/) |
+| **gerrit-cli** | Gerrit code review comments | [gerrit_cli/](gerrit_cli/) |
 
 ## Design Philosophy
 
@@ -36,11 +36,11 @@ jira issue search "project = PROJ AND status = Open"
 jira issue comments PROJ-123 --limit 5
 ```
 
-### Gerrit Comments Tool
+### Gerrit CLI Tool
 
 ```bash
 # Install
-cd gerrit_comments && pip install -e .
+cd gerrit_cli && pip install -e .
 
 # Configure
 export GERRIT_URL="https://review.example.com"
@@ -48,9 +48,9 @@ export GERRIT_USER="your-username"
 export GERRIT_PASS="your-http-password"
 
 # Use
-gerrit-comments extract https://review.example.com/c/project/+/12345
-gerrit-comments review https://review.example.com/c/project/+/12345
-gerrit-comments series https://review.example.com/c/project/+/12345
+gerrit-cli extract https://review.example.com/c/project/+/12345
+gerrit-cli review https://review.example.com/c/project/+/12345
+gerrit-cli series https://review.example.com/c/project/+/12345
 ```
 
 ## Documentation
@@ -60,7 +60,7 @@ gerrit-comments series https://review.example.com/c/project/+/12345
 Per-tool documentation:
 
 - **JIRA Tool**: [README](jira_tool/README.md) | [Architecture](jira_tool/ARCHITECTURE.md) | [Skills](jira_tool/SKILLS.md)
-- **Gerrit Comments**: [README](gerrit_comments/README.md) | [Architecture](gerrit_comments/ARCHITECTURE.md) | [Skills](gerrit_comments/SKILLS.md)
+- **Gerrit CLI**: [README](gerrit_cli/README.md) | [Architecture](gerrit_cli/ARCHITECTURE.md) | [Skills](gerrit_cli/SKILLS.md)
 
 ## Output Format
 

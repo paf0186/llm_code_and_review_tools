@@ -2,14 +2,14 @@
 
 ## Quick Install
 
-To install the `gerrit-comments` tool:
+To install the `gerrit-cli` tool:
 
 ```bash
-cd /shared/llm_code_and_review_tools/gerrit_comments
+cd /shared/llm_code_and_review_tools/gerrit_cli
 ./install.sh
 ```
 
-This will install the tool and make the `gerrit-comments` command available in your PATH.
+This will install the tool and make the `gerrit-cli` command available in your PATH.
 
 ## Requirements
 
@@ -51,7 +51,7 @@ pip install -e .
 Or manually:
 
 ```bash
-pip uninstall gerrit-comments
+pip uninstall gerrit-cli
 ```
 
 ## Verification
@@ -59,7 +59,7 @@ pip uninstall gerrit-comments
 After installation, verify it works:
 
 ```bash
-gerrit-comments --help
+gerrit-cli --help
 ```
 
 You should see the help text with all available commands.
@@ -77,16 +77,16 @@ The tool looks for credentials in this priority order:
 The install script automatically installs the `.env` file if present in the source directory.
 
 After installation, the file will be located at:
-- User install: `~/.config/gerrit-comments/.env`
-- Root install: `/etc/gerrit-comments/.env`
+- User install: `~/.config/gerrit-cli/.env`
+- Root install: `/etc/gerrit-cli/.env`
 
 You can manually edit this file to update credentials:
 ```bash
 # User install
-nano ~/.config/gerrit-comments/.env
+nano ~/.config/gerrit-cli/.env
 
 # Root install (requires sudo)
-sudo nano /etc/gerrit-comments/.env
+sudo nano /etc/gerrit-cli/.env
 ```
 
 ### Option 2: Using environment variables
@@ -110,7 +110,7 @@ Add these to your `~/.bashrc` or `~/.zshrc` to make them permanent.
 
 ### Command not found after installation
 
-If `gerrit-comments` is not found after installation, your Python scripts directory may not be in PATH.
+If `gerrit-cli` is not found after installation, your Python scripts directory may not be in PATH.
 
 For user installs (pip without sudo):
 ```bash
@@ -136,5 +136,5 @@ pip install -e ".[dev]"
 
 Run tests:
 ```bash
-pytest gerrit_comments/tests/ -v
+pytest gerrit_cli/tests/ -v
 ```

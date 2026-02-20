@@ -1,4 +1,4 @@
-"""Machine-readable API description for the Gerrit comments tool.
+"""Machine-readable API description for the Gerrit CLI tool.
 
 Provides the full command surface so LLMs can discover capabilities
 without parsing --help text.
@@ -8,14 +8,14 @@ from llm_tool_common import Argument, Command, ToolDescription
 
 
 def get_tool_description() -> ToolDescription:
-    """Return the complete gerrit-comments tool API description."""
+    """Return the complete gerrit-cli tool API description."""
     return ToolDescription(
         name="gerrit-cli",
         version="0.1.0",
         description=(
             "Gerrit code review tool for LLM agents. "
             "Extract comments, reply, review diffs, and manage patch series. "
-            "Use 'gc' or 'gerrit-comments' as short aliases for 'gerrit'."
+            "Use 'gc' or 'gerrit-cli' as short aliases for 'gerrit'."
         ),
         env_vars=[
             {"name": "GERRIT_URL", "description": "Gerrit server URL", "required": "true"},

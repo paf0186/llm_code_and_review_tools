@@ -1,4 +1,4 @@
-# Gerrit Comments Agent Skill
+# Gerrit CLI Agent Skill
 
 Extract and reply to Gerrit code review comments with code context. Designed for use as an agent skill for Claude or other AI assistants.
 
@@ -14,7 +14,7 @@ pip install -e .
 
 ## Agent Skill Description
 
-**Gerrit Comments Tool** - Extract unresolved comments from Gerrit code reviews and reply to them. Supports extracting comment threads with surrounding code context, replying to comments with custom messages, and marking comments as "Done" or "Acknowledged" to resolve threads.
+**Gerrit CLI Tool** - Extract unresolved comments from Gerrit code reviews and reply to them. Supports extracting comment threads with surrounding code context, replying to comments with custom messages, and marking comments as "Done" or "Acknowledged" to resolve threads.
 
 ### Capabilities
 
@@ -53,29 +53,29 @@ pip install -e .
 
 ```bash
 # Extract unresolved comments with code context
-gerrit-comments extract https://review.whamcloud.com/c/fs/lustre-release/+/62796
+gc extract https://review.whamcloud.com/c/fs/lustre-release/+/62796
 
 # Output as JSON
-gerrit-comments extract --json https://review.whamcloud.com/c/fs/lustre-release/+/62796
+gc extract --json https://review.whamcloud.com/c/fs/lustre-release/+/62796
 
 # Include resolved comments too
-gerrit-comments extract --all https://review.whamcloud.com/c/fs/lustre-release/+/62796
+gc extract --all https://review.whamcloud.com/c/fs/lustre-release/+/62796
 ```
 
 ### Reply to Comments
 
 ```bash
 # Reply to thread 0 with a message
-gerrit-comments reply https://review.whamcloud.com/c/fs/lustre-release/+/62796 0 "Fixed in next patchset"
+gc reply https://review.whamcloud.com/c/fs/lustre-release/+/62796 0 "Fixed in next patchset"
 
 # Mark thread 0 as done
-gerrit-comments reply --done https://review.whamcloud.com/c/fs/lustre-release/+/62796 0
+gc reply --done https://review.whamcloud.com/c/fs/lustre-release/+/62796 0
 
 # Acknowledge thread 1
-gerrit-comments reply --ack https://review.whamcloud.com/c/fs/lustre-release/+/62796 1
+gc reply --ack https://review.whamcloud.com/c/fs/lustre-release/+/62796 1
 
 # Reply and resolve
-gerrit-comments reply --resolve https://review.whamcloud.com/c/fs/lustre-release/+/62796 0 "Implemented as suggested"
+gc reply --resolve https://review.whamcloud.com/c/fs/lustre-release/+/62796 0 "Implemented as suggested"
 ```
 
 ### Batch Reply
@@ -92,23 +92,23 @@ Create a JSON file with replies:
 Then run:
 
 ```bash
-gerrit-comments batch https://review.whamcloud.com/c/fs/lustre-release/+/62796 replies.json
+gc batch https://review.whamcloud.com/c/fs/lustre-release/+/62796 replies.json
 ```
 
 ### Code Review
 
 ```bash
 # Get code changes for review (human-readable format)
-gerrit-comments review https://review.whamcloud.com/c/fs/lustre-release/+/62796
+gc review https://review.whamcloud.com/c/fs/lustre-release/+/62796
 
 # Get code changes as JSON (for programmatic use)
-gerrit-comments review --json https://review.whamcloud.com/c/fs/lustre-release/+/62796
+gc review --json https://review.whamcloud.com/c/fs/lustre-release/+/62796
 
 # Show only added/deleted lines (not full diff context)
-gerrit-comments review --changes-only https://review.whamcloud.com/c/fs/lustre-release/+/62796
+gc review --changes-only https://review.whamcloud.com/c/fs/lustre-release/+/62796
 
 # Post a code review with comments from JSON file
-gerrit-comments review --post-comments review.json https://review.whamcloud.com/c/fs/lustre-release/+/62796
+gc review --post-comments review.json https://review.whamcloud.com/c/fs/lustre-release/+/62796
 ```
 
 Review JSON file format:
@@ -127,35 +127,35 @@ Review JSON file format:
 
 ```bash
 # Find all patches in a series (given any patch in the series)
-gerrit-comments series https://review.whamcloud.com/c/fs/lustre-release/+/61965
+gc series https://review.whamcloud.com/c/fs/lustre-release/+/61965
 
 # Output as JSON
-gerrit-comments series --json https://review.whamcloud.com/c/fs/lustre-release/+/61965
+gc series --json https://review.whamcloud.com/c/fs/lustre-release/+/61965
 
 # Output only URLs (one per line, useful for scripting)
-gerrit-comments series --urls-only https://review.whamcloud.com/c/fs/lustre-release/+/61965
+gc series --urls-only https://review.whamcloud.com/c/fs/lustre-release/+/61965
 
 # Output only change numbers (one per line)
-gerrit-comments series --numbers-only https://review.whamcloud.com/c/fs/lustre-release/+/61965
+gc series --numbers-only https://review.whamcloud.com/c/fs/lustre-release/+/61965
 
 # Include abandoned patches in the series
-gerrit-comments series --include-abandoned https://review.whamcloud.com/c/fs/lustre-release/+/61965
+gc series --include-abandoned https://review.whamcloud.com/c/fs/lustre-release/+/61965
 ```
 
 ### Series Comments
 
 ```bash
 # Get all unresolved comments from all patches in a series
-gerrit-comments series-comments https://review.whamcloud.com/c/fs/lustre-release/+/61965
+gc series-comments https://review.whamcloud.com/c/fs/lustre-release/+/61965
 
 # Output as JSON
-gerrit-comments series-comments --json https://review.whamcloud.com/c/fs/lustre-release/+/61965
+gc series-comments --json https://review.whamcloud.com/c/fs/lustre-release/+/61965
 
 # Include resolved comments too
-gerrit-comments series-comments --all https://review.whamcloud.com/c/fs/lustre-release/+/61965
+gc series-comments --all https://review.whamcloud.com/c/fs/lustre-release/+/61965
 
 # Exclude code context (faster)
-gerrit-comments series-comments --no-context https://review.whamcloud.com/c/fs/lustre-release/+/61965
+gc series-comments --no-context https://review.whamcloud.com/c/fs/lustre-release/+/61965
 ```
 
 ## Python API
@@ -163,7 +163,7 @@ gerrit-comments series-comments --no-context https://review.whamcloud.com/c/fs/l
 ### Extract Comments
 
 ```python
-from gerrit_comments import extract_comments
+from gerrit_cli import extract_comments
 
 # Extract unresolved comments
 result = extract_comments(
@@ -197,7 +197,7 @@ print(json.dumps(result.to_dict(), indent=2))
 ### Reply to Comments
 
 ```python
-from gerrit_comments import CommentReplier, extract_comments
+from gerrit_cli import CommentReplier, extract_comments
 
 # Extract first
 result = extract_comments("https://review.whamcloud.com/c/fs/lustre-release/+/62796")
@@ -220,7 +220,7 @@ else:
 ### Mark as Done
 
 ```python
-from gerrit_comments import CommentReplier, extract_comments
+from gerrit_cli import CommentReplier, extract_comments
 
 result = extract_comments("https://review.whamcloud.com/c/fs/lustre-release/+/62796")
 
@@ -235,7 +235,7 @@ done_result = replier.mark_thread_done(
 ### Batch Reply
 
 ```python
-from gerrit_comments import CommentReplier, extract_comments
+from gerrit_cli import CommentReplier, extract_comments
 
 result = extract_comments("https://review.whamcloud.com/c/fs/lustre-release/+/62796")
 
@@ -255,7 +255,7 @@ for r in results:
 ### Code Review
 
 ```python
-from gerrit_comments import CodeReviewer, get_review_data, post_review
+from gerrit_cli import CodeReviewer, get_review_data, post_review
 
 # Get review data for a change
 review_data = get_review_data("https://review.whamcloud.com/c/fs/lustre-release/+/62796")
@@ -308,7 +308,7 @@ result = reviewer.post_comment(
 ### Find Patch Series
 
 ```python
-from gerrit_comments import find_series, SeriesFinder
+from gerrit_cli import find_series, SeriesFinder
 
 # Find all patches in a series (given any patch URL)
 series = find_series("https://review.whamcloud.com/c/fs/lustre-release/+/61965")
@@ -343,7 +343,7 @@ series = finder.find_series_by_change(61965, include_abandoned=True)
 ### Series Comments
 
 ```python
-from gerrit_comments import get_series_comments, SeriesFinder
+from gerrit_cli import get_series_comments, SeriesFinder
 
 # Get all unresolved comments from all patches in a series
 result = get_series_comments(
@@ -402,7 +402,7 @@ export GERRIT_PASS="your-http-password"
 Or pass directly:
 
 ```python
-from gerrit_comments import GerritCommentsClient, CommentExtractor
+from gerrit_cli import GerritCommentsClient, CommentExtractor
 
 client = GerritCommentsClient(
     url="https://your-gerrit.com",
@@ -485,13 +485,13 @@ extractor = CommentExtractor(client=client)
 uv pip install -e ".[dev]"
 
 # Run unit tests
-pytest gerrit_comments/tests/ -v --ignore=gerrit_comments/tests/test_integration.py
+pytest gerrit_cli/tests/ -v --ignore=gerrit_cli/tests/test_integration.py
 
 # Run integration tests (requires network)
-pytest gerrit_comments/tests/test_integration.py -v
+pytest gerrit_cli/tests/test_integration.py -v
 
 # Run all tests
-pytest gerrit_comments/tests/ -v
+pytest gerrit_cli/tests/ -v
 ```
 
 ## License

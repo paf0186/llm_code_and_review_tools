@@ -1,17 +1,17 @@
-# Gerrit Comments Architecture
+# Gerrit CLI Architecture
 
-This document describes the code architecture of the `gerrit_comments` package.
+This document describes the code architecture of the `gerrit_cli` package.
 
 ## Overview
 
-`gerrit_comments` is a CLI tool for working with Gerrit code review comments. It
+`gerrit_cli` is a CLI tool for working with Gerrit code review comments. It
 provides functionality for fetching, reviewing, and replying to comments, as well
 as managing patch series and rebasing workflows.
 
 ## Module Structure
 
 ```
-gerrit_comments/
+gerrit_cli/
 ├── __init__.py          # Package exports and entry point
 ├── cli.py               # Command handlers (cmd_* functions)
 ├── parsers.py           # Argparse definitions for all commands
@@ -152,10 +152,10 @@ When patches in a series have newer patchsets:
 
 ## Testing
 
-Tests are in `gerrit_comments/tests/`. Each module has a corresponding test file:
+Tests are in `gerrit_cli/tests/`. Each module has a corresponding test file:
 
 - `test_cli.py`, `test_client.py`, `test_extractor.py`, etc.
-- Use pytest with coverage: `pytest --cov=gerrit_comments`
+- Use pytest with coverage: `pytest --cov=gerrit_cli`
 - Current coverage: 91% with 529 tests
 
 ## Key Design Decisions

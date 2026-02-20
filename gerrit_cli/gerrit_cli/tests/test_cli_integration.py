@@ -189,7 +189,7 @@ class TestCLIEntryPoint:
         """Test that --help works."""
         from gerrit_cli.cli import main
 
-        with patch('sys.argv', ['gerrit-comments', '--help']):
+        with patch('sys.argv', ['gerrit-cli', '--help']):
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code == 0
@@ -198,7 +198,7 @@ class TestCLIEntryPoint:
         """Test that unknown commands give helpful error."""
         from gerrit_cli.cli import main
 
-        with patch('sys.argv', ['gerrit-comments', 'not-a-command']):
+        with patch('sys.argv', ['gerrit-cli', 'not-a-command']):
             with pytest.raises(SystemExit) as exc_info:
                 main()
             # argparse exits with 2 for invalid arguments
@@ -209,7 +209,7 @@ class TestCLIEntryPoint:
         from gerrit_cli.cli import main
         from gerrit_cli.rebase import RebaseManager
 
-        with patch('sys.argv', ['gerrit-comments', 'status']), \
+        with patch('sys.argv', ['gerrit-cli', 'status']), \
              patch.object(RebaseManager, 'has_active_session', return_value=False), \
              patch('sys.stdout', new_callable=StringIO) as mock_stdout:
             # cmd_status calls sys.exit(1) when no session

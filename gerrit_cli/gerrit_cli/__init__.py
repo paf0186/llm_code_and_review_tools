@@ -1,4 +1,4 @@
-"""Gerrit Comments Tools - Extract, reply, and review Gerrit code changes.
+"""Gerrit CLI Tools - Extract, reply, and review Gerrit code changes.
 
 This module provides tools for:
 1. Extracting comments from Gerrit changes with code context

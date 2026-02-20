@@ -1,6 +1,6 @@
 # LLM Code and Review Tools - Development Guide
 
-This repository contains CLI tools for LLM agents: `jira` and `gerrit-comments`.
+This repository contains CLI tools for LLM agents: `jira` and `gerrit-cli`.
 
 For tool usage documentation (to be installed in other repos), see [docs/TOOL_USAGE.md](docs/TOOL_USAGE.md).
 
@@ -14,7 +14,7 @@ llm_code_and_review_tools/
 │   ├── config.py        # Configuration
 │   ├── envelope.py      # JSON response formatting
 │   └── errors.py        # Error codes
-├── gerrit_comments/     # Gerrit review tool
+├── gerrit_cli/     # Gerrit review tool
 │   ├── cli.py           # Command handlers
 │   ├── client.py        # Gerrit API client
 │   └── ...
@@ -136,10 +136,10 @@ pytest
 
 # Run specific tool tests
 pytest jira_tool/tests/
-pytest gerrit_comments/tests/
+pytest gerrit_cli/tests/
 
 # With coverage
-pytest --cov=jira_tool --cov=gerrit_comments
+pytest --cov=jira_tool --cov=gerrit_cli
 ```
 
 ### Code Style

@@ -1,4 +1,4 @@
-"""Unit tests for gerrit-comments response envelope wrappers."""
+"""Unit tests for gerrit-cli response envelope wrappers."""
 
 import json
 
@@ -16,7 +16,7 @@ class TestToolName:
     """Tests for tool name configuration."""
 
     def test_tool_name_is_gerrit_cli(self):
-        """Tool name should be 'gerrit-comments'."""
+        """Tool name should be 'gerrit-cli'."""
         assert TOOL_NAME == "gerrit-cli"
 
 
@@ -24,7 +24,7 @@ class TestSuccessResponse:
     """Tests for success response wrapper."""
 
     def test_success_response_includes_tool_name(self):
-        """Success response should include gerrit-comments tool name."""
+        """Success response should include gerrit-cli tool name."""
         result = success_response({"key": "value"}, "extract")
         assert result["ok"] is True
         assert result["data"] == {"key": "value"}

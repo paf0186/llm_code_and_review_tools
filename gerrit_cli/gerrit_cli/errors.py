@@ -1,4 +1,4 @@
-"""Error codes and exceptions for gerrit-comments tool.
+"""Error codes and exceptions for gerrit-cli tool.
 
 This module re-exports base classes from llm_tool_common and adds
 Gerrit-specific error codes and exception types.

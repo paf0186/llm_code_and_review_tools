@@ -8,7 +8,7 @@ This document provides guidance for AI agents using these tools.
 |------|---------|----------|
 | `bd` | Task tracking (beads) | `bd ready`, `bd create`, `bd close`, etc. |
 | `jira` | JIRA issue tracking | `jira issue get`, `jira issue search`, etc. |
-| `gc` (or `gerrit-comments`) | Gerrit code review | `gc comments`, `gc review`, `gc add-reviewer`, etc. |
+| `gc` (or `gc`) | Gerrit code review | `gc comments`, `gc review`, `gc add-reviewer`, etc. |
 
 ---
 
@@ -134,9 +134,9 @@ jira issue create --project LU --type Bug --summary "Bug title"
 
 ---
 
-# Gerrit Comments Tool (`gc`)
+# Gerrit CLI Tool (`gc`)
 
-**Alias:** Use `gc` instead of `gerrit-comments` for shorter commands.
+**Alias:** Use `gc` instead of `gc` for shorter commands.
 
 ## Configuration
 
@@ -285,7 +285,7 @@ gc explain add-reviewer
 
 # Output Format
 
-All tools (jira, gerrit-comments) use a standard JSON response envelope:
+All tools (jira, gc) use a standard JSON response envelope:
 
 ```json
 {
@@ -334,7 +334,7 @@ On error:
 cd jira_tool && pytest tests/
 
 # Gerrit comments tests
-cd gerrit_comments && pytest gerrit_comments/tests/
+cd gerrit_cli && pytest gerrit_cli/tests/
 ```
 
 ---
@@ -352,10 +352,10 @@ jira_tool/
 └── errors.py         # Error codes and exceptions
 ```
 
-## Gerrit Comments Structure
+## Gerrit CLI Structure
 
 ```
-gerrit_comments/
+gerrit_cli/
 ├── cli.py            # Command handlers
 ├── parsers.py        # Argparse definitions
 ├── client.py         # Gerrit REST API client
@@ -369,7 +369,7 @@ gerrit_comments/
 └── git_utils.py      # Git helpers
 ```
 
-## Layer Diagram (Gerrit Comments)
+## Layer Diagram (Gerrit CLI)
 
 ```
 CLI Layer        cli.py + parsers.py

@@ -1,4 +1,4 @@
-# gerrit-comments TODO
+# gc TODO
 
 ## Series Workflow Improvements
 
@@ -9,7 +9,7 @@
 
 Add `series-push` command to push all staged operations across all patches in a series:
 ```bash
-gerrit-comments series-push <series-url>
+gc series-push <series-url>
 ```
 
 Should show progress:
@@ -37,7 +37,7 @@ Implementation notes:
 
 Add `series-status` command for dashboard view:
 ```bash
-gerrit-comments series-status <series-url>
+gc series-status <series-url>
 ```
 
 Output:
@@ -94,15 +94,15 @@ Modify `series-comments` output to include change number prefix:
 
 Add `series-stage` command that accepts these combined indices:
 ```bash
-gerrit-comments series-stage <series-url> 62640:0 "Fixed"
-gerrit-comments series-stage <series-url> 62641:0 --done
+gc series-stage <series-url> 62640:0 "Fixed"
+gc series-stage <series-url> 62641:0 --done
 ```
 
 **Option B: Export/import workflow**
 
 ```bash
 # Export series comments to editable JSON
-gerrit-comments series-export <series-url> responses.json
+gc series-export <series-url> responses.json
 
 # Edit responses.json to add your replies
 # File format:
@@ -117,10 +117,10 @@ gerrit-comments series-export <series-url> responses.json
 # }
 
 # Import responses and stage them
-gerrit-comments series-import responses.json
+gc series-import responses.json
 
 # Push everything
-gerrit-comments series-push <series-url>
+gc series-push <series-url>
 ```
 
 ---
@@ -133,19 +133,19 @@ gerrit-comments series-push <series-url>
 Common responses library:
 ```bash
 # Manage templates
-gerrit-comments template add "done" "Done, thanks for the review"
-gerrit-comments template add "wip" "Will address in follow-up patch"
-gerrit-comments template add "question" "Could you clarify what you mean?"
-gerrit-comments template list
-gerrit-comments template remove "done"
+gc template add "done" "Done, thanks for the review"
+gc template add "wip" "Will address in follow-up patch"
+gc template add "question" "Could you clarify what you mean?"
+gc template list
+gc template remove "done"
 
 # Use in staging
-gerrit-comments stage --template=done <url> <thread>
-gerrit-comments series-stage --template=wip <series-url> 62640:1
+gc stage --template=done <url> <thread>
+gc series-stage --template=wip <series-url> 62640:1
 ```
 
 Implementation:
-- Store templates in `~/.gerrit-comments/templates.json`
+- Store templates in `~/.gc/templates.json`
 - Simple key-value pairs
 - Support variables: `{author}`, `{file}`, `{line}` for personalization
 
@@ -157,20 +157,20 @@ Implementation:
 Add filtering options:
 ```bash
 # Filter by author
-gerrit-comments series-comments --author="Marc Vef" <url>
+gc series-comments --author="Marc Vef" <url>
 
 # Filter by file pattern (glob)
-gerrit-comments series-comments --file="*/llite/*" <url>
-gerrit-comments series-comments --file="*.c" <url>
+gc series-comments --file="*/llite/*" <url>
+gc series-comments --file="*.c" <url>
 
 # Only specific patches in series
-gerrit-comments series-comments --patches=62640,62641 <url>
+gc series-comments --patches=62640,62641 <url>
 
 # Group by file instead of by patch
-gerrit-comments series-comments --group-by=file <url>
+gc series-comments --group-by=file <url>
 
 # Combine filters
-gerrit-comments series-comments --author="Marc Vef" --file="*/llite/*" <url>
+gc series-comments --author="Marc Vef" --file="*/llite/*" <url>
 ```
 
 Useful for large series where you want to focus on specific areas.
@@ -184,7 +184,7 @@ Useful for large series where you want to focus on specific areas.
 
 Terminal interface for working with series:
 ```bash
-gerrit-comments interactive <url>
+gc interactive <url>
 ```
 
 Implemented features:
@@ -223,7 +223,7 @@ Possible future enhancements:
 
 Add `[e]dit patch` action to interactive mode:
 ```bash
-gerrit-comments interactive <url>
+gc interactive <url>
 
 # When viewing a comment, user can press 'e' to edit that patch
 # Tool will:
@@ -231,7 +231,7 @@ gerrit-comments interactive <url>
 # 2. Run: git rebase -i <base>~<position> (stop at that patch)
 # 3. Drop user into editor/shell to fix the code
 # 4. User runs: git add <files> && git commit --amend
-# 5. User signals completion (or runs gerrit-comments finish-patch)
+# 5. User signals completion (or runs gc finish-patch)
 # 6. Tool continues rebase to tip
 # 7. Returns to interactive comment review
 ```
@@ -241,7 +241,7 @@ gerrit-comments interactive <url>
 Allow AI agents to work on patches:
 ```bash
 # Start working on a specific patch
-gerrit-comments work-on-patch <series-url> <change-number>
+gc work-on-patch <series-url> <change-number>
 
 # This will:
 # 1. Find patch position in series
@@ -252,7 +252,7 @@ gerrit-comments work-on-patch <series-url> <change-number>
 #    - Run git add/commit --amend
 #    - Test changes
 # 5. When done, agent runs:
-gerrit-comments finish-patch
+gc finish-patch
 
 # This will:
 # 1. Continue rebase to series tip
@@ -281,12 +281,12 @@ gerrit-comments finish-patch
 
 3. **Conflict handling:**
    - If rebase fails with conflicts, drop user to shell with clear instructions
-   - Provide helper: `gerrit-comments status` to check current state
-   - Provide abort: `gerrit-comments abort` to abort rebase and return to original state
+   - Provide helper: `gc status` to check current state
+   - Provide abort: `gc abort` to abort rebase and return to original state
 
 4. **Series tracking:**
    - Need to track which patches have been worked on
-   - Store state in `~/.gerrit-comments/rebase-session.json`
+   - Store state in `~/.gc/rebase-session.json`
    - Include: current patch, original HEAD, series URL, patches completed
 
 5. **Integration with staging:**
@@ -303,20 +303,20 @@ gerrit-comments finish-patch
 **Example workflow:**
 ```bash
 # Review series and identify patches that need fixes
-gerrit-comments series-status https://review.whamcloud.com/62640
+gc series-status https://review.whamcloud.com/62640
 
 # Start interactive mode with edit support
-gerrit-comments interactive --allow-edit https://review.whamcloud.com/62640
+gc interactive --allow-edit https://review.whamcloud.com/62640
 
 # Or, for agent mode:
-gerrit-comments work-on-patch https://review.whamcloud.com/62640 62641
+gc work-on-patch https://review.whamcloud.com/62640 62641
 # Agent makes changes...
-gerrit-comments finish-patch
+gc finish-patch
 ```
 
 **Implementation:**
 - Created `rebase.py` module with `RebaseManager` class
-- Session tracking via `RebaseSession` dataclass stored in `~/.gerrit-comments/rebase-session.json`
+- Session tracking via `RebaseSession` dataclass stored in `~/.gc/rebase-session.json`
 - Commands implemented:
   - `work-on-patch <url> <change-number>` - Start working on a patch
   - `next-patch` - Move to the next patch in series
@@ -338,16 +338,16 @@ gerrit-comments finish-patch
 Quick acknowledge all unresolved comments:
 ```bash
 # Stage "Done" for all unresolved comments
-gerrit-comments series-done-all <url>
+gc series-done-all <url>
 
 # With custom message
-gerrit-comments series-done-all --message="Fixed in v2" <url>
+gc series-done-all --message="Fixed in v2" <url>
 
 # Preview
-gerrit-comments series-done-all --dry-run <url>
+gc series-done-all --dry-run <url>
 
 # Then push
-gerrit-comments series-push <url>
+gc series-push <url>
 ```
 
 Warning: Should require confirmation or `--force` flag to prevent accidents.
@@ -359,7 +359,7 @@ Warning: Should require confirmation or `--force` flag to prevent accidents.
 
 Show patch dependencies in series:
 ```bash
-gerrit-comments series --show-deps <url>
+gc series --show-deps <url>
 ```
 
 Output:
@@ -403,7 +403,7 @@ Add a global flag that produces consistently structured output:
 
 Example:
 ```bash
-gerrit-comments review-series --llm <url>
+gc review-series --llm <url>
 ```
 
 Output:
@@ -419,7 +419,7 @@ PATCH 62643: 2 unresolved
 
 ### SUGGESTED ACTIONS ###
 1. Address 3 comments on patch 62640
-2. Run: gerrit-comments work-on-patch <url> 62640
+2. Run: gc work-on-patch <url> 62640
 ```
 
 ---
@@ -429,7 +429,7 @@ PATCH 62643: 2 unresolved
 
 Show comments interleaved with the code they reference:
 ```bash
-gerrit-comments review --inline <url>
+gc review --inline <url>
 ```
 
 Output:
@@ -442,7 +442,7 @@ Output:
         └── COMMENT [reviewer@example.com] (unresolved):
             "This loop has O(n²) complexity. Consider hash lookup."
 
-            ACTION: Reply with 'gerrit-comments stage 0 "message"'
+            ACTION: Reply with 'gc stage 0 "message"'
     43:     }
     44: }
 ```
@@ -454,7 +454,7 @@ This is the format LLMs work best with - seeing the comment in context.
 #### 12. Consolidated Context Command
 **Status:** Not started
 
-New command: `gerrit-comments context <url>`
+New command: `gc context <url>`
 
 Outputs everything an LLM needs in one block:
 - Commit message
@@ -501,7 +501,7 @@ These help when output is being captured for LLM input.
 #### 15. Session Context File
 **Status:** Not started
 
-Write `.gerrit-comments/context.md` with current session state:
+Write `.gc/context.md` with current session state:
 ```markdown
 # Current Review Session
 
@@ -522,7 +522,7 @@ Write `.gerrit-comments/context.md` with current session state:
 
 ## Next Steps
 1. Address remaining 2 comments
-2. Run: gerrit-comments finish-patch
+2. Run: gc finish-patch
 ```
 
 LLM can read this file to understand current state.
@@ -534,7 +534,7 @@ LLM can read this file to understand current state.
 
 Command to generate reply template:
 ```bash
-gerrit-comments generate-replies <url> > replies.json
+gc generate-replies <url> > replies.json
 ```
 
 Output:
@@ -556,8 +556,8 @@ Output:
 
 LLM fills in `suggested_response`, then:
 ```bash
-gerrit-comments import-replies replies.json
-gerrit-comments series-push <url>
+gc import-replies replies.json
+gc series-push <url>
 ```
 
 ---
@@ -589,13 +589,13 @@ RECOVERY OPTIONS:
 1. Resolve manually:
    - Edit lustre/llite/file.c
    - Run: git add lustre/llite/file.c
-   - Run: gerrit-comments continue-reintegration
+   - Run: gc continue-reintegration
 
 2. Skip this patch:
-   - Run: gerrit-comments skip-reintegration
+   - Run: gc skip-reintegration
 
 3. Abort session:
-   - Run: gerrit-comments abort
+   - Run: gc abort
 ```
 
 ---

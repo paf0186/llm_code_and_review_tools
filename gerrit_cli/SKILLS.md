@@ -1,6 +1,7 @@
-# Gerrit Comments Tool
+# Gerrit CLI Tool
 
-Address review comments on a patch series.
+CLI for Gerrit code review: extract/reply to comments, manage reviewers,
+triage Maloo test results, review patch series, and manage changes.
 
 ## Output Format
 
@@ -8,31 +9,39 @@ All commands return JSON with this structure:
 - `ok`: boolean indicating success
 - `data`: the response payload (on success)
 - `error`: error details (on failure)
-- `meta`: metadata including tool name (`gerrit-comments`), command, and timestamp
+- `meta`: metadata including tool name (`gerrit-cli`), command, and timestamp
 
 Example response:
 ```json
-{"ok": true, "data": {...}, "meta": {"tool": "gerrit-comments", "command": "extract", "timestamp": "2026-01-22T12:00:00Z"}}
+{"ok": true, "data": {...}, "meta": {"tool": "gerrit-cli", "command": "extract", "timestamp": "2026-01-22T12:00:00Z"}}
 ```
 
 ## Quick Start
 
 ```bash
 # 1. Start reviewing - checks out first patch with comments
-gerrit-comments review-series <URL>
+gc review-series <URL>
 
 # 2. For each patch: fix issues, stage replies, finish
-gerrit-comments stage --done <index>        # Mark comment as done
-gerrit-comments stage <index> "message"     # Reply with message
+gc stage --done <index>        # Mark comment as done
+gc stage <index> "message"     # Reply with message
 git add <files> && git commit --amend --no-edit
-gerrit-comments finish-patch                # Auto-advances to next
+gc finish-patch                # Auto-advances to next
 
 # 3. When done
-gerrit-comments abort --keep-changes
+gc abort --keep-changes
 git push origin HEAD:refs/for/master
 ```
 
 ## Commands
+
+### Comments & Review
+```bash
+comments <URL>                   # Get unresolved comments
+reply <thread_index> "msg"       # Reply to a comment
+reply <thread_index> --done      # Mark as done
+review <URL>                     # Get code changes for review
+```
 
 ### Workflow
 ```bash
@@ -55,7 +64,22 @@ status                           # Check session status (default if in session)
 ```bash
 series-status <URL>              # Show status of all patches in series
 series-comments <URL>            # Get comments for all patches in series
-review <URL>                     # Get code changes for review
+info <URL>                       # Show change info (reviewers, labels, etc.)
+maloo <URL> [URL...]             # Triage Maloo CI results (batch mode)
+watch <json-file>                # Check CI status on watched patches
+```
+
+### Reviewer Management
+```bash
+add-reviewer <URL> "Name"        # Add a reviewer to a change
+reviewers <URL>                  # List reviewers on a change
+```
+
+### Change Management
+```bash
+checkout <URL>                   # Fetch and checkout a Gerrit change
+abandon <URL>                    # Abandon a Gerrit change
+message <URL> "text"             # Post a top-level message
 ```
 
 ### Interactive Mode
@@ -108,8 +132,8 @@ Error responses include:
 
 1. **Parse the `ok` field** first to determine success/failure
 2. **Check series-status** before starting work on a patch series
-4. **Stage replies as you go** - don't forget to stage before finish-patch
-5. **Handle exit codes** to distinguish error types
+3. **Stage replies as you go** - don't forget to stage before finish-patch
+4. **Handle exit codes** to distinguish error types
 
 ## Development
 
@@ -118,13 +142,13 @@ Error responses include:
 pip install -e ".[dev]"
 
 # Run linter
-ruff check gerrit_comments/
+ruff check gerrit_cli/
 
 # Run tests
-pytest gerrit_comments/tests/
+pytest gerrit_cli/tests/
 
 # Run tests with coverage
-pytest gerrit_comments/tests/ --cov=gerrit_comments
+pytest gerrit_cli/tests/ --cov=gerrit_cli
 ```
 
 Pre-commit hook runs linting automatically.
