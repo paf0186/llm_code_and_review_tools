@@ -17,7 +17,7 @@ class TestToolName:
 
     def test_tool_name_is_gerrit_cli(self):
         """Tool name should be 'gerrit-comments'."""
-        assert TOOL_NAME == "gerrit-comments"
+        assert TOOL_NAME == "gerrit-cli"
 
 
 class TestSuccessResponse:
@@ -28,7 +28,7 @@ class TestSuccessResponse:
         result = success_response({"key": "value"}, "extract")
         assert result["ok"] is True
         assert result["data"] == {"key": "value"}
-        assert result["meta"]["tool"] == "gerrit-comments"
+        assert result["meta"]["tool"] == "gerrit-cli"
         assert result["meta"]["command"] == "extract"
 
     def test_success_response_with_list_data(self):
@@ -36,7 +36,7 @@ class TestSuccessResponse:
         data = [{"id": 1}, {"id": 2}]
         result = success_response(data, "series-comments")
         assert result["data"] == data
-        assert result["meta"]["tool"] == "gerrit-comments"
+        assert result["meta"]["tool"] == "gerrit-cli"
 
 
 class TestErrorResponse:
@@ -55,7 +55,7 @@ class TestErrorResponse:
         assert result["error"]["code"] == "CHANGE_NOT_FOUND"
         assert result["error"]["message"] == "Change 12345 not found"
         assert result["error"]["http_status"] == 404
-        assert result["meta"]["tool"] == "gerrit-comments"
+        assert result["meta"]["tool"] == "gerrit-cli"
         assert result["meta"]["command"] == "extract"
 
     def test_error_response_with_details(self):
@@ -81,7 +81,7 @@ class TestErrorResponseFromDict:
         )
         assert result["ok"] is False
         assert result["error"]["code"] == "ERROR"
-        assert result["meta"]["tool"] == "gerrit-comments"
+        assert result["meta"]["tool"] == "gerrit-cli"
 
     def test_full_error(self):
         """Should include all optional fields."""

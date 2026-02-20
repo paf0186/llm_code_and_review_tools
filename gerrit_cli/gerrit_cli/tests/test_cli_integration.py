@@ -106,6 +106,9 @@ class TestParserHandlerContracts:
 
         # Map command names to handler functions (same as main())
         handlers = {
+            'comments': cli.cmd_extract,
+            'reply': cli.cmd_reply,
+            'batch': cli.cmd_batch_reply,
             'review': cli.cmd_review,
             'series_comments': cli.cmd_series_comments,
             'series': cli.cmd_series,
@@ -125,6 +128,21 @@ class TestParserHandlerContracts:
             'staged_refresh': cli.cmd_staged_refresh,
             'continue_reintegration': cli.cmd_continue_reintegration,
             'skip_reintegration': cli.cmd_skip_reintegration,
+            'reviewers': cli.cmd_reviewers,
+            'add_reviewer': cli.cmd_add_reviewer,
+            'remove_reviewer': cli.cmd_remove_reviewer,
+            'find_user': cli.cmd_find_user,
+            'abandon': cli.cmd_abandon,
+            'checkout': cli.cmd_checkout,
+            'maloo': cli.cmd_maloo,
+            'info': cli.cmd_info,
+            'watch': cli.cmd_watch,
+            'message': cli.cmd_message,
+            'explain': cli.cmd_explain,
+            'examples': cli.cmd_examples,
+            'done': cli.cmd_done,
+            'ack': cli.cmd_ack,
+            'describe': cli.cmd_describe,
         }
 
         setup_parsers(subparsers, handlers)
@@ -338,6 +356,9 @@ class TestStagedParserHandlerContract:
 
         # Map command names to handler functions (same as main())
         handlers = {
+            'comments': cli.cmd_extract,
+            'reply': cli.cmd_reply,
+            'batch': cli.cmd_batch_reply,
             'review': cli.cmd_review,
             'series_comments': cli.cmd_series_comments,
             'series': cli.cmd_series,
@@ -357,6 +378,21 @@ class TestStagedParserHandlerContract:
             'staged_refresh': cli.cmd_staged_refresh,
             'continue_reintegration': cli.cmd_continue_reintegration,
             'skip_reintegration': cli.cmd_skip_reintegration,
+            'reviewers': cli.cmd_reviewers,
+            'add_reviewer': cli.cmd_add_reviewer,
+            'remove_reviewer': cli.cmd_remove_reviewer,
+            'find_user': cli.cmd_find_user,
+            'abandon': cli.cmd_abandon,
+            'checkout': cli.cmd_checkout,
+            'maloo': cli.cmd_maloo,
+            'info': cli.cmd_info,
+            'watch': cli.cmd_watch,
+            'message': cli.cmd_message,
+            'explain': cli.cmd_explain,
+            'examples': cli.cmd_examples,
+            'done': cli.cmd_done,
+            'ack': cli.cmd_ack,
+            'describe': cli.cmd_describe,
         }
 
         setup_parsers(subparsers, handlers)

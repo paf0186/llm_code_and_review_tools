@@ -149,7 +149,8 @@ class TestFailures:
 
 
 class TestSubtests:
-    def test_subtests_basic(self, runner, mock_client):
+    def _setup_subtests(self, mock_client):
+        """Common setup for subtests tests."""
         mock_client.get_test_set.return_value = {
             "id": TSID_1,
             "test_set_script_id": "sc-1",
@@ -182,33 +183,42 @@ class TestSubtests:
             "sub-2": "test_1b",
         }
 
+    def test_subtests_defaults_to_fail(self, runner, mock_client):
+        """Default (no flags) should show only FAIL subtests."""
+        self._setup_subtests(mock_client)
         result = runner.invoke(main, ["subtests", TSID_1])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["suite"] == "sanity"
         assert env["data"]["total"] == 2
+        assert env["data"]["shown"] == 1
+        assert env["data"]["filter"] == "FAIL"
+        assert env["data"]["subtests"][0]["name"] == "test_1b"
+
+    def test_subtests_all_flag(self, runner, mock_client):
+        """--all should show all subtests regardless of status."""
+        self._setup_subtests(mock_client)
+        result = runner.invoke(main, ["subtests", TSID_1, "--all"])
+        env = _parse_output(result)
         assert env["data"]["shown"] == 2
+        assert env["data"]["filter"] is None
 
     def test_subtests_status_filter(self, runner, mock_client):
-        mock_client.get_test_set.return_value = {
-            "id": TSID_1,
-            "test_set_script_id": "sc-1",
-            "status": "FAIL",
-        }
-        mock_client.get_test_set_script.return_value = {"id": "sc-1", "name": "sanity"}
-        mock_client.get_subtests.return_value = [
-            {"sub_test_script_id": "sub-1", "status": "PASS", "order": 0},
-            {"sub_test_script_id": "sub-2", "status": "FAIL", "error": "oops", "order": 1},
-        ]
-        mock_client.resolve_subtest_names.return_value = {
-            "sub-1": "test_1a",
-            "sub-2": "test_1b",
-        }
-
-        result = runner.invoke(main, ["subtests", TSID_1, "--status", "FAIL"])
+        """Explicit --status filter should work."""
+        self._setup_subtests(mock_client)
+        result = runner.invoke(main, ["subtests", TSID_1, "--status", "PASS"])
         env = _parse_output(result)
         assert env["data"]["shown"] == 1
-        assert env["data"]["subtests"][0]["name"] == "test_1b"
+        assert env["data"]["subtests"][0]["name"] == "test_1a"
+        assert env["data"]["filter"] == "PASS"
+
+    def test_subtests_all_overrides_status(self, runner, mock_client):
+        """--all should override --status."""
+        self._setup_subtests(mock_client)
+        result = runner.invoke(main, ["subtests", TSID_1, "--all", "--status", "PASS"])
+        env = _parse_output(result)
+        assert env["data"]["shown"] == 2
+        assert env["data"]["filter"] is None
 
 
 # -- review command --
@@ -354,46 +364,45 @@ class TestSessions:
 
 
 class TestTestHistory:
-    def test_history_basic(self, runner, mock_client):
-        mock_client.get_test_history.return_value = (
-            [
-                {
-                    "session_id": SID_1,
-                    "submission": "2026-02-10T10:00:00.000Z",
-                    "test_host": "host1",
-                    "test_name": "lustre-master--full--1.10",
-                    "suite": "sanity",
-                    "status": "PASS",
-                    "error": "",
-                    "duration": 30,
-                    "test_set_id": TSID_1,
-                },
-                {
-                    "session_id": SID_2,
-                    "submission": "2026-02-12T10:00:00.000Z",
-                    "test_host": "host2",
-                    "test_name": "lustre-master--full--1.11",
-                    "suite": "sanity",
-                    "status": "FAIL",
-                    "error": "assertion failed",
-                    "duration": 25,
-                    "test_set_id": TSID_2,
-                },
-                {
-                    "session_id": SID_3,
-                    "submission": "2026-02-14T10:00:00.000Z",
-                    "test_host": "host1",
-                    "test_name": "lustre-master--full--1.12",
-                    "suite": "sanity",
-                    "status": "PASS",
-                    "error": "",
-                    "duration": 28,
-                    "test_set_id": TSID_1,
-                },
-            ],
-            "sanity",
-        )
+    HISTORY_DATA = [
+        {
+            "session_id": SID_1,
+            "submission": "2026-02-10T10:00:00.000Z",
+            "test_host": "host1",
+            "test_name": "lustre-master--full--1.10",
+            "suite": "sanity",
+            "status": "PASS",
+            "error": "",
+            "duration": 30,
+            "test_set_id": TSID_1,
+        },
+        {
+            "session_id": SID_2,
+            "submission": "2026-02-12T10:00:00.000Z",
+            "test_host": "host2",
+            "test_name": "lustre-master--full--1.11",
+            "suite": "sanity",
+            "status": "FAIL",
+            "error": "assertion failed",
+            "duration": 25,
+            "test_set_id": TSID_2,
+        },
+        {
+            "session_id": SID_3,
+            "submission": "2026-02-14T10:00:00.000Z",
+            "test_host": "host1",
+            "test_name": "lustre-master--full--1.12",
+            "suite": "sanity",
+            "status": "PASS",
+            "error": "",
+            "duration": 28,
+            "test_set_id": TSID_1,
+        },
+    ]
 
+    def test_history_defaults_to_failures_only(self, runner, mock_client):
+        """Default should show summary for all, but history only for failures."""
+        mock_client.get_test_history.return_value = (self.HISTORY_DATA, "sanity")
         result = runner.invoke(main, ["test-history", "test_39b"])
         env = _parse_output(result)
         assert env["ok"] is True
@@ -402,6 +411,24 @@ class TestTestHistory:
         assert env["data"]["summary"]["pass"] == 2
         assert env["data"]["summary"]["fail"] == 1
         assert env["data"]["summary"]["fail_rate_pct"] == pytest.approx(33.3, abs=0.1)
+        # History should only contain the failure entry
+        assert len(env["data"]["history"]) == 1
+        assert env["data"]["history"][0]["status"] == "FAIL"
+
+    def test_history_all_flag(self, runner, mock_client):
+        """--all should show all history entries."""
+        mock_client.get_test_history.return_value = (self.HISTORY_DATA, "sanity")
+        result = runner.invoke(main, ["test-history", "test_39b", "--all"])
+        env = _parse_output(result)
+        assert len(env["data"]["history"]) == 3
+
+    def test_history_limit(self, runner, mock_client):
+        """--limit should cap history entries."""
+        many = self.HISTORY_DATA * 5  # 15 entries (5 failures)
+        mock_client.get_test_history.return_value = (many, "sanity")
+        result = runner.invoke(main, ["test-history", "test_39b", "--all", "--limit", "3"])
+        env = _parse_output(result)
+        assert len(env["data"]["history"]) == 3
 
     def test_history_with_suite_filter(self, runner, mock_client):
         mock_client.get_test_history.return_value = ([], None)

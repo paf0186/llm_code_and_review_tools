@@ -707,11 +707,6 @@ def add_watch_parser(subparsers):
         "file",
         help="JSON file with watched patches (array of {gerrit_url, ...})",
     )
-    parser.add_argument(
-        "--pretty", "-p",
-        action="store_true",
-        help="Pretty-print JSON output",
-    )
     return parser
 
 

@@ -346,6 +346,7 @@ class TestExtractCommentsFunction:
             context_lines=5,
             exclude_ci_bots=True,
             exclude_lint_bots=False,
+            include_system=False,
         )
 
 

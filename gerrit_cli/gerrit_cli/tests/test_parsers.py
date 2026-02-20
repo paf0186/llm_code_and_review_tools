@@ -76,6 +76,9 @@ class TestParserHandlerIntegration:
 
         # Create mock handlers for all commands
         handlers = {
+            'comments': MagicMock(),
+            'reply': MagicMock(),
+            'batch': MagicMock(),
             'review': MagicMock(),
             'series_comments': MagicMock(),
             'series': MagicMock(),
@@ -95,6 +98,21 @@ class TestParserHandlerIntegration:
             'staged_refresh': MagicMock(),
             'continue_reintegration': MagicMock(),
             'skip_reintegration': MagicMock(),
+            'reviewers': MagicMock(),
+            'add_reviewer': MagicMock(),
+            'remove_reviewer': MagicMock(),
+            'find_user': MagicMock(),
+            'abandon': MagicMock(),
+            'checkout': MagicMock(),
+            'maloo': MagicMock(),
+            'info': MagicMock(),
+            'watch': MagicMock(),
+            'message': MagicMock(),
+            'explain': MagicMock(),
+            'examples': MagicMock(),
+            'done': MagicMock(),
+            'ack': MagicMock(),
+            'describe': MagicMock(),
         }
 
         setup_parsers(subparsers, handlers)
@@ -158,7 +176,7 @@ class TestParserCreation:
         add_reply_parser(subparsers)
 
         args = parser.parse_args([
-            'reply', 'https://example.com/12345', '0', 'Done'
+            'reply', '--url', 'https://example.com/12345', '0', 'Done'
         ])
         assert args.url == 'https://example.com/12345'
         assert args.thread_index == 0
@@ -173,7 +191,7 @@ class TestParserCreation:
         add_reply_parser(subparsers)
 
         args = parser.parse_args([
-            'reply', 'https://example.com/12345', '0', '--done'
+            'reply', '0', '--done'
         ])
         assert args.done is True
         assert args.ack is False

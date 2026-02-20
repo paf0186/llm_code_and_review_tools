@@ -6,14 +6,11 @@ This CLI provides commands for:
 2. reply - Reply to comments or mark them as done
 3. review - Get diff/changes for code review, optionally post review comments
 
-All commands output JSON by default. Use --pretty for human-readable output.
+All commands output JSON.
 
 Examples:
-    # Get unresolved comments (JSON output)
+    # Get unresolved comments
     gc comments https://review.whamcloud.com/c/fs/lustre-release/+/62796
-
-    # Get comments with human-readable output
-    gc comments --pretty https://review.whamcloud.com/c/fs/lustre-release/+/62796
 
     # Reply to a comment (by thread index from comments output)
     gc reply https://review.whamcloud.com/c/fs/lustre-release/+/62796 0 "Done"
@@ -23,9 +20,6 @@ Examples:
 
     # Get changes for code review
     gc review https://review.whamcloud.com/c/fs/lustre-release/+/62796
-
-    # Get changes with pretty output
-    gc review --pretty https://review.whamcloud.com/c/fs/lustre-release/+/62796
 
     # Post a code review with comments from JSON file
     gc review --post-comments comments.json https://review.whamcloud.com/62796
@@ -1662,7 +1656,6 @@ def cmd_watch(args):
     """Check CI status on a list of watched patches from a JSON file."""
     import json as _json
     command = "watch"
-    pretty = getattr(args, 'pretty', False)
 
     try:
         with open(args.file) as f:
@@ -1677,7 +1670,7 @@ def cmd_watch(args):
             sys.exit(output_error(
                 ErrorCode.INVALID_INPUT,
                 "JSON file must contain an array or {patches: [...]}",
-                command, pretty))
+                command, False))
 
         client = GerritCommentsClient()
         results = []
@@ -1711,19 +1704,19 @@ def cmd_watch(args):
                 })
 
         output_success({"patches": results, "count": len(results)},
-                       command, pretty)
+                       command, False)
         sys.exit(ExitCode.SUCCESS)
 
     except FileNotFoundError:
         sys.exit(output_error(
             ErrorCode.INVALID_INPUT,
-            f"File not found: {args.file}", command, pretty))
+            f"File not found: {args.file}", command, False))
     except _json.JSONDecodeError as e:
         sys.exit(output_error(
             ErrorCode.INVALID_INPUT,
-            f"Invalid JSON: {e}", command, pretty))
+            f"Invalid JSON: {e}", command, False))
     except Exception as e:
-        sys.exit(output_error(ErrorCode.API_ERROR, str(e), command, pretty))
+        sys.exit(output_error(ErrorCode.API_ERROR, str(e), command, False))
 
 
 def cmd_message(args):

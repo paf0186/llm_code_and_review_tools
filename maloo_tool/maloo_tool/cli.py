@@ -204,10 +204,16 @@ def failures(session_url: str, pretty: bool) -> None:
 
 @main.command()
 @click.argument("test_set_id")
-@click.option("--status", type=str, default=None, help="Filter by status (PASS/FAIL/SKIP/CRASH)")
+@click.option("--status", type=str, default="FAIL",
+              help="Filter by status (PASS/FAIL/SKIP/CRASH). Default: FAIL")
+@click.option("--all", "show_all", is_flag=True,
+              help="Show all subtests (override --status filter)")
 @click.option("--pretty", is_flag=True, help="Pretty-print JSON")
-def subtests(test_set_id: str, status: str | None, pretty: bool) -> None:
+def subtests(test_set_id: str, status: str | None, show_all: bool, pretty: bool) -> None:
     """Show subtests for a test set (suite).
+
+    By default shows only FAIL subtests. Use --all to see everything,
+    or --status PASS/SKIP/CRASH to filter differently.
 
     TEST_SET_ID is the UUID of the test set.
     """
@@ -227,9 +233,10 @@ def subtests(test_set_id: str, status: str | None, pretty: bool) -> None:
         if script:
             suite_name = script["name"]
 
+    active_filter = None if show_all else status
     items = []
     for st in all_subtests:
-        if status and st["status"] != status.upper():
+        if active_filter and st["status"] != active_filter.upper():
             continue
         st_name = subtest_names.get(
             st.get("sub_test_script_id", ""), f"order_{st.get('order', '?')}"
@@ -249,7 +256,7 @@ def subtests(test_set_id: str, status: str | None, pretty: bool) -> None:
         "suite_status": ts["status"],
         "total": len(all_subtests),
         "shown": len(items),
-        "filter": status,
+        "filter": active_filter,
         "subtests": items,
     }
 
@@ -418,7 +425,7 @@ def sessions(
       maloo sessions --branch lustre-master
       maloo sessions --branch lustre-master --failed --days 14
       maloo sessions --host onyx-53vm1 --days 3
-      maloo sessions --limit 50 --pretty
+      maloo sessions --limit 50
     """
     client = _make_client()
 
@@ -504,6 +511,10 @@ def sessions(
               help="Number of days to look back (default: 14)")
 @click.option("--sessions", "max_sessions", type=int, default=30,
               help="Max sessions to examine (default: 30)")
+@click.option("--all", "show_all", is_flag=True,
+              help="Show all history entries (default: failures only)")
+@click.option("--limit", type=int, default=10,
+              help="Max history entries to return (default: 10)")
 @click.option("--pretty", is_flag=True, help="Pretty-print JSON")
 def test_history(
     test_name: str,
@@ -511,13 +522,14 @@ def test_history(
     suite: str | None,
     days: int,
     max_sessions: int,
+    show_all: bool,
+    limit: int,
     pretty: bool,
 ) -> None:
     """Show pass/fail history for a specific test.
 
-    Searches recent sessions on a branch for a subtest by name
-    and shows its status over time. Useful for determining if a
-    test is flaky or if a patch introduced a regression.
+    By default shows only failures in the history detail.
+    Use --all to include PASS entries too.
 
     \b
     TEST_NAME is the subtest name (e.g. test_39b).
@@ -527,7 +539,7 @@ def test_history(
       maloo test-history test_39b
       maloo test-history test_39b --suite sanity --days 30
       maloo test-history test_1b --branch lustre-reviews --suite replay-vbr
-      maloo test-history test_39b --sessions 50 --pretty
+      maloo test-history test_39b --sessions 50 --all
     """
     client = _make_client()
 
@@ -555,6 +567,15 @@ def test_history(
     skip_count = sum(1 for h in history if h["status"] == "SKIP")
     fail_rate = (fail_count / total * 100) if total > 0 else 0.0
 
+    # Filter history entries: default to failures only
+    if show_all:
+        filtered = history
+    else:
+        filtered = [h for h in history if h["status"] in ("FAIL", "CRASH", "TIMEOUT")]
+
+    # Apply limit
+    filtered = filtered[:limit]
+
     result = {
         "test_name": test_name,
         "branch": branch,
@@ -572,7 +593,6 @@ def test_history(
         "history": [
             {
                 "date": h["submission"][:10] if h["submission"] else "",
-                "submission": h["submission"],
                 "status": h["status"],
                 "error": h["error"][:200] if h["error"] else "",
                 "duration": h["duration"],
@@ -580,7 +600,7 @@ def test_history(
                 "session_id": h["session_id"],
                 "test_set_id": h["test_set_id"],
             }
-            for h in history
+            for h in filtered
         ],
     }
 
@@ -628,7 +648,7 @@ def queue(
       maloo queue --review 54321
       maloo queue --branch lustre-master
       maloo queue --status Running
-      maloo queue --review 54321 --pretty
+      maloo queue --review 54321
     """
     client = _make_client()
 
@@ -721,7 +741,7 @@ def top_failures(
       maloo top-failures
       maloo top-failures lustre-master --days 14
       maloo top-failures lustre-b2_15 --days 30 --limit 10
-      maloo top-failures --sessions 100 --pretty
+      maloo top-failures --sessions 100
     """
     client = _make_client()
 

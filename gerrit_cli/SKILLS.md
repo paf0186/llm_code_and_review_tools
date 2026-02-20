@@ -10,8 +10,6 @@ All commands return JSON with this structure:
 - `error`: error details (on failure)
 - `meta`: metadata including tool name (`gerrit-comments`), command, and timestamp
 
-Use `--pretty` flag for human-readable formatted output.
-
 Example response:
 ```json
 {"ok": true, "data": {...}, "meta": {"tool": "gerrit-comments", "command": "extract", "timestamp": "2026-01-22T12:00:00Z"}}
@@ -109,8 +107,7 @@ Error responses include:
 ## Tips for LLM Agents
 
 1. **Parse the `ok` field** first to determine success/failure
-2. **Use `--pretty`** when debugging or showing output to users
-3. **Check series-status** before starting work on a patch series
+2. **Check series-status** before starting work on a patch series
 4. **Stage replies as you go** - don't forget to stage before finish-patch
 5. **Handle exit codes** to distinguish error types
 
