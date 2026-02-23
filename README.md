@@ -15,11 +15,10 @@ CLI tools designed for LLM agents to interact with code review and issue trackin
 
 These tools share common design principles:
 
-- **Structured JSON output** with consistent envelope format (`ok`, `data`/`error`, `meta`) — use `--json` flag on commands that default to human-readable output
+- **Structured JSON output** with consistent envelope format (`ok`, `data`/`error`, `meta`) — use `--pretty` for formatted output
 - **Deterministic behavior** - same input produces same output shape
 - **Context-aware pagination** - built-in limits to avoid overwhelming LLM context windows
 - **Explicit inputs** - no implicit defaults, fail fast with clear error codes
-- **Human-readable by default** (jenkins) or JSON by default (jira, gerrit-cli, maloo) — all support both modes
 
 ## Quick Start
 

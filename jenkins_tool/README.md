@@ -53,16 +53,26 @@ jenkins retrigger lustre-reviews 121880
 
 ## Output Format
 
-Commands default to human-readable tables and text. Add `--json` to any command
-for the standard JSON envelope (`ok`, `data`, `meta`) for programmatic use:
+All commands return JSON with a consistent envelope:
 
-```bash
-jenkins builds lustre-reviews --limit 10 --json
-jenkins build lustre-reviews 121881 --json
+```json
+{
+  "ok": true,
+  "data": { ... },
+  "meta": {
+    "tool": "jenkins",
+    "command": "build",
+    "timestamp": "2024-01-15T10:30:00Z"
+  }
+}
 ```
 
-Error output goes to stderr in human mode, or to stdout as
-`{"ok": false, "error": {...}}` in `--json` mode.
+Use `--pretty` for human-readable formatted output. It works on any command:
+
+```bash
+jenkins builds lustre-reviews --limit 10 --pretty
+jenkins build lustre-reviews 121881 --pretty
+```
 
 ## Commands
 
