@@ -19,7 +19,7 @@ These tools share common design principles:
 - **Deterministic behavior** - same input produces same output shape
 - **Context-aware pagination** - built-in limits to avoid overwhelming LLM context windows
 - **Explicit inputs** - no implicit defaults, fail fast with clear error codes
-- **Human-readable by default** (jenkins) or JSON by default (jira, gerrit-comments) — all support both modes
+- **Human-readable by default** (jenkins) or JSON by default (jira, gerrit-cli, maloo) — all support both modes
 
 ## Quick Start
 
@@ -67,34 +67,11 @@ export JENKINS_URL="https://build.whamcloud.com"
 export JENKINS_USER="your-username"
 export JENKINS_TOKEN="your-api-token"
 
-# Use (read-only) — human-readable output by default; add --json for machine output
-jenkins jobs                             # All jobs with status
-jenkins jobs --view lustre               # Jobs in a specific view
-jenkins builds lustre-reviews --limit 10 # Recent builds for a job
-jenkins build lustre-reviews 121881      # Build details + matrix runs (per-config status)
-jenkins build lustre-master lastFailedBuild  # Last failed build
-jenkins console lustre-reviews 121880    # Console output (last 200 lines)
-jenkins console lustre-master 4704 --grep "error"  # Search console output
-jenkins run-console lustre-reviews 121880 "arch=x86_64,build_type=client,distro=el8.9,ib_stack=inkernel"
-jenkins review 54225                     # Find builds for a Gerrit change number
-
-# Write operations
-jenkins abort lustre-reviews 121884      # Abort a running build and all sub-builds
-jenkins abort lustre-reviews 121884 --kill  # Hard-kill if graceful abort doesn't work
-jenkins retrigger lustre-reviews 121880  # Retrigger via Gerrit Trigger plugin
-
-# Machine/agent usage — add --json to any command for JSON envelope output
-jenkins builds lustre-reviews --limit 10 --json
-jenkins build lustre-reviews 121881 --json
+# Use
+jenkins builds lustre-reviews --limit 10
+jenkins build lustre-reviews 121881
+jenkins console lustre-master lastFailedBuild --grep "error"
 ```
-
-Output defaults to human-readable tables and plain text. Use `--json` on any command to get the
-standard JSON envelope (`ok`, `data`, `meta`) for programmatic consumption. Errors always go to
-stderr in human mode, or to stdout as `{"ok": false, "error": {...}}` in `--json` mode.
-
-Matrix builds (e.g. `lustre-reviews`) run sub-builds per configuration (arch, distro, build type).
-The `build` command lists all runs with per-config status; `run-console` fetches logs for a specific config.
-The `retrigger` command uses the Gerrit Trigger plugin, so the build gets the correct Gerrit refspec.
 
 ## Documentation
 
