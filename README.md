@@ -72,6 +72,22 @@ jenkins build lustre-reviews 121881
 jenkins console lustre-master lastFailedBuild --grep "error"
 ```
 
+### Maloo Tool
+
+```bash
+# Install
+cd maloo_tool && pip install -e .
+
+# Configure
+export MALOO_USER="your-username"
+export MALOO_PASS="your-password"
+
+# Use
+maloo session <session-UUID>
+maloo failures <session-UUID>
+maloo top-failures lustre-master --days 7 --limit 10
+```
+
 ## Documentation
 
 - **[AGENTS.md](AGENTS.md)** - Combined guide for AI agents (recommended starting point)
