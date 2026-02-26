@@ -2,6 +2,25 @@
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+def _load_env_file() -> None:
+    """Load environment variables from .env file in standard locations."""
+    env_locations = [
+        Path.home() / ".config" / "jenkins-tool" / ".env",
+        Path("/shared/support_files/.env"),
+        Path(".env"),
+    ]
+    for env_path in env_locations:
+        if env_path.exists():
+            load_dotenv(env_path)
+            return
+
+
+_load_env_file()
 
 
 @dataclass
@@ -17,7 +36,8 @@ class JenkinsConfig:
         if not self.user or not self.token:
             raise ValueError(
                 "Jenkins credentials required. Set JENKINS_USER and JENKINS_TOKEN "
-                "environment variables, or pass --user and --token options.\n"
+                "environment variables, or create "
+                "~/.config/jenkins-tool/.env with:\n"
                 "  JENKINS_URL=https://build.whamcloud.com\n"
                 "  JENKINS_USER=youruser\n"
                 "  JENKINS_TOKEN=your-api-token"
