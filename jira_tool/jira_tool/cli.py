@@ -1876,6 +1876,16 @@ def attachment_upload(ctx: click.Context, key: str, file_path: str, filename: st
         sys.exit(handle_error(e, command, pretty))
 
 
+@main.command("attach")
+@click.argument("key")
+@click.argument("file_path", type=click.Path(exists=True))
+@click.option("--filename", help="Override filename (default: use file's basename)")
+@click.pass_context
+def attach(ctx: click.Context, key: str, file_path: str, filename: str | None) -> None:
+    """Alias for 'attachment upload' - upload an attachment to an issue."""
+    ctx.invoke(attachment_upload, key=key, file_path=file_path, filename=filename)
+
+
 # =============================================================================
 # Config Commands
 # =============================================================================

@@ -1148,10 +1148,17 @@ class JiraClient:
             try:
                 # Re-open file for each attempt (file handle is consumed after POST)
                 with open(file_path, "rb") as f:
+                    # Must remove Content-Type so requests can set
+                    # the multipart/form-data boundary automatically.
+                    # The session default is application/json which
+                    # causes HTTP 415 on file uploads.
+                    post_headers = {**headers}
+                    post_headers["Content-Type"] = None
                     response = self._session.post(
                         url,
-                        files={"file": (filename, f)},
-                        headers=headers,
+                        files={"file": (filename, f,
+                                        "application/octet-stream")},
+                        headers=post_headers,
                         timeout=self.timeout,
                     )
 
