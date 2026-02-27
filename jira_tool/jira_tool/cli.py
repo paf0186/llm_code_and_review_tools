@@ -433,8 +433,14 @@ def issue_search(ctx: click.Context, jql: str, limit: int, offset: int, fields: 
 @main.command("comment")
 @click.argument("key")
 @click.argument("body")
+@click.option(
+    "--visibility",
+    default=None,
+    help="Restrict comment visibility. Format: 'role:RoleName' or 'group:GroupName'. "
+    "Use 'jira roles <PROJECT_KEY>' to list available roles.",
+)
 @click.pass_context
-def issue_comment_add(ctx: click.Context, key: str, body: str) -> None:
+def issue_comment_add(ctx: click.Context, key: str, body: str, visibility: str | None) -> None:
     """
     Add a comment to an issue.
 
@@ -448,7 +454,8 @@ def issue_comment_add(ctx: click.Context, key: str, body: str) -> None:
         client = get_client(ctx)
         key = extract_issue_key(key)
 
-        raw_comment = client.add_comment(key, body)
+        visibility_dict = _parse_visibility(visibility) if visibility else None
+        raw_comment = client.add_comment(key, body, visibility=visibility_dict)
 
         # Normalize response
         comment_data = {
@@ -707,6 +714,43 @@ def issue_remove_label(ctx: click.Context, key: str, labels: tuple[str, ...]) ->
         data = {
             "issue_key": key,
             "labels_removed": list(labels),
+        }
+
+        envelope = success_response(data, command)
+        output_result(envelope, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except JiraToolError as e:
+        sys.exit(handle_error(e, command, pretty))
+    except ConfigError as e:
+        sys.exit(handle_error(e, command, pretty))
+
+
+@main.command("roles")
+@click.argument("project_key")
+@click.pass_context
+def project_roles(ctx: click.Context, project_key: str) -> None:
+    """
+    List available roles for a project.
+
+    PROJECT_KEY is the project key (e.g., LU, EX).
+    Useful for discovering valid values for --visibility on the comment command.
+    """
+    command = "roles"
+    pretty = ctx.obj.get("pretty", False)
+
+    try:
+        client = get_client(ctx)
+
+        raw = client.get_project_roles(project_key)
+
+        # raw is a dict like {"Developers": "https://...role/10001", "Administrators": "..."}
+        roles = sorted(raw.keys())
+
+        data = {
+            "project_key": project_key,
+            "total": len(roles),
+            "roles": roles,
         }
 
         envelope = success_response(data, command)
@@ -1759,6 +1803,41 @@ def config_test(ctx: click.Context) -> None:
 # =============================================================================
 
 
+def _parse_visibility(value: str) -> dict[str, str]:
+    """
+    Parse a visibility string like 'role:Developers' or 'group:jira-users'.
+
+    Args:
+        value: Visibility string in 'type:value' format
+
+    Returns:
+        Dict with "type" and "value" keys for the JIRA API
+
+    Raises:
+        click.BadParameter: If the format is invalid
+    """
+    if ":" not in value:
+        raise click.BadParameter(
+            f"Invalid visibility format: '{value}'. "
+            "Expected 'role:RoleName' or 'group:GroupName'.",
+            param_hint="'--visibility'",
+        )
+    vis_type, vis_value = value.split(":", 1)
+    vis_type = vis_type.strip().lower()
+    vis_value = vis_value.strip()
+    if vis_type not in ("role", "group"):
+        raise click.BadParameter(
+            f"Invalid visibility type: '{vis_type}'. Must be 'role' or 'group'.",
+            param_hint="'--visibility'",
+        )
+    if not vis_value:
+        raise click.BadParameter(
+            "Visibility value cannot be empty.",
+            param_hint="'--visibility'",
+        )
+    return {"type": vis_type, "value": vis_value}
+
+
 def _normalize_issue(raw_issue: dict[str, Any]) -> dict[str, Any]:
     """Normalize JIRA issue to agent-friendly format."""
     fields = raw_issue.get("fields", {})
@@ -1815,7 +1894,7 @@ def _normalize_comment(raw_comment: dict[str, Any]) -> dict[str, Any]:
     author = raw_comment.get("author", {})
     update_author = raw_comment.get("updateAuthor", {})
 
-    return {
+    result = {
         "id": raw_comment.get("id"),
         "body": raw_comment.get("body"),
         "author": author.get("displayName"),
@@ -1824,6 +1903,15 @@ def _normalize_comment(raw_comment: dict[str, Any]) -> dict[str, Any]:
         "updated": raw_comment.get("updated"),
         "update_author": update_author.get("displayName") if update_author else None,
     }
+
+    visibility = raw_comment.get("visibility")
+    if visibility:
+        result["visibility"] = {
+            "type": visibility.get("type"),
+            "value": visibility.get("value"),
+        }
+
+    return result
 
 
 def _normalize_comments(raw_comments: dict[str, Any], summary_only: bool = False) -> dict[str, Any]:

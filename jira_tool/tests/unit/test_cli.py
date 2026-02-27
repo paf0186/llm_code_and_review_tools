@@ -6,7 +6,15 @@ import pytest
 import responses
 from click.testing import CliRunner
 
-from jira_tool.cli import _normalize_comment, _normalize_comments, _normalize_issue, extract_issue_key, extract_field, main
+from jira_tool.cli import (
+    _normalize_comment,
+    _normalize_comments,
+    _normalize_issue,
+    _parse_visibility,
+    extract_issue_key,
+    extract_field,
+    main,
+)
 
 
 @pytest.fixture
@@ -158,6 +166,79 @@ class TestNormalizeComment:
         assert result["author"] == "John Doe"
         assert result["author_email"] == "john@example.com"
         assert result["update_author"] == "Jane Doe"
+
+    def test_normalize_comment_with_visibility(self):
+        """Should include visibility when present."""
+        raw = {
+            "id": "12345",
+            "body": "Restricted",
+            "author": {"displayName": "John Doe"},
+            "visibility": {"type": "role", "value": "Developers"},
+            "created": "2024-01-15T10:00:00.000+0000",
+        }
+
+        result = _normalize_comment(raw)
+
+        assert result["visibility"]["type"] == "role"
+        assert result["visibility"]["value"] == "Developers"
+
+    def test_normalize_comment_without_visibility(self):
+        """Should not include visibility when absent."""
+        raw = {
+            "id": "12345",
+            "body": "Public",
+            "author": {"displayName": "John Doe"},
+            "created": "2024-01-15T10:00:00.000+0000",
+        }
+
+        result = _normalize_comment(raw)
+
+        assert "visibility" not in result
+
+
+class TestParseVisibility:
+    """Tests for _parse_visibility helper."""
+
+    def test_parse_role_visibility(self):
+        """Should parse role:Name format."""
+        result = _parse_visibility("role:Developers")
+        assert result == {"type": "role", "value": "Developers"}
+
+    def test_parse_group_visibility(self):
+        """Should parse group:Name format."""
+        result = _parse_visibility("group:jira-users")
+        assert result == {"type": "group", "value": "jira-users"}
+
+    def test_parse_visibility_with_spaces(self):
+        """Should handle spaces around colon."""
+        result = _parse_visibility("role : Project Admins")
+        assert result == {"type": "role", "value": "Project Admins"}
+
+    def test_parse_visibility_case_insensitive_type(self):
+        """Should accept uppercase type."""
+        result = _parse_visibility("Role:Developers")
+        assert result == {"type": "role", "value": "Developers"}
+
+    def test_parse_visibility_no_colon(self):
+        """Should reject missing colon."""
+        from click import BadParameter
+
+        with pytest.raises(BadParameter, match="Invalid visibility format"):
+            _parse_visibility("Developers")
+
+    def test_parse_visibility_invalid_type(self):
+        """Should reject invalid type."""
+        from click import BadParameter
+
+        with pytest.raises(BadParameter, match="Invalid visibility type"):
+            _parse_visibility("user:john")
+
+    def test_parse_visibility_empty_value(self):
+        """Should reject empty value."""
+        from click import BadParameter
+
+        with pytest.raises(BadParameter, match="cannot be empty"):
+            _parse_visibility("role:")
 
 
 class TestNormalizeComments:
@@ -485,6 +566,95 @@ class TestCLIIssueComment:
         data = json.loads(result.output)
         assert data["data"]["issue_key"] == "PROJ-123"
         assert data["data"]["comment"]["body"] == "Test comment"
+
+    @responses.activate
+    def test_add_comment_with_visibility(self, runner, mock_env):
+        """Should add comment with visibility restriction."""
+        responses.add(
+            responses.POST,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123/comment",
+            json={
+                "id": "12345",
+                "body": "Internal note",
+                "author": {"displayName": "User"},
+                "created": "2024-01-15T10:00:00.000+0000",
+                "visibility": {"type": "role", "value": "Developers"},
+            },
+            status=201,
+        )
+
+        result = runner.invoke(
+            main, ["comment", "PROJ-123", "Internal note", "--visibility", "role:Developers"]
+        )
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["data"]["comment"]["visibility"]["type"] == "role"
+        assert data["data"]["comment"]["visibility"]["value"] == "Developers"
+
+        # Verify the request body included visibility
+        request_body = json.loads(responses.calls[0].request.body)
+        assert request_body["visibility"] == {"type": "role", "value": "Developers"}
+
+    def test_add_comment_with_invalid_visibility(self, runner, mock_env):
+        """Should fail with invalid visibility format."""
+        result = runner.invoke(
+            main, ["comment", "PROJ-123", "text", "--visibility", "invalid"]
+        )
+
+        assert result.exit_code != 0
+
+    @responses.activate
+    def test_add_comment_without_visibility(self, runner, mock_env):
+        """Should not send visibility when option not provided."""
+        responses.add(
+            responses.POST,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123/comment",
+            json={
+                "id": "12345",
+                "body": "Public comment",
+                "author": {"displayName": "User"},
+                "created": "2024-01-15T10:00:00.000+0000",
+            },
+            status=201,
+        )
+
+        result = runner.invoke(main, ["comment", "PROJ-123", "Public comment"])
+
+        assert result.exit_code == 0
+        request_body = json.loads(responses.calls[0].request.body)
+        assert "visibility" not in request_body
+
+
+class TestCLIProjectRoles:
+    """Tests for 'jira roles' command."""
+
+    @responses.activate
+    def test_list_roles(self, runner, mock_env):
+        """Should list project roles."""
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/project/PROJ/role",
+            json={
+                "Administrators": "https://jira.example.com/rest/api/2/project/PROJ/role/10001",
+                "Developers": "https://jira.example.com/rest/api/2/project/PROJ/role/10002",
+                "Users": "https://jira.example.com/rest/api/2/project/PROJ/role/10003",
+            },
+            status=200,
+        )
+
+        result = runner.invoke(main, ["roles", "PROJ"])
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["ok"] is True
+        assert data["data"]["project_key"] == "PROJ"
+        assert data["data"]["total"] == 3
+        assert "Administrators" in data["data"]["roles"]
+        assert "Developers" in data["data"]["roles"]
+        assert "Users" in data["data"]["roles"]
+        # Should be sorted
+        assert data["data"]["roles"] == sorted(data["data"]["roles"])
 
 
 class TestCLIIssueTransitions:

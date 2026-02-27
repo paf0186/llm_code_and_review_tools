@@ -78,15 +78,26 @@ def get_tool_description() -> ToolDescription:
             ),
             Command(
                 name="comment",
-                description="Add a comment to an issue",
-                usage='jira comment <KEY> "<BODY>"',
+                description="Add a comment to an issue, optionally with restricted visibility",
+                usage='jira comment <KEY> "<BODY>" [--visibility role:RoleName]',
                 arguments=[
                     Argument(name="key", description="Issue key or JIRA URL", required=True),
                     Argument(name="body", description="Comment text", required=True),
+                    Argument(
+                        name="--visibility",
+                        description="Restrict visibility: 'role:RoleName' or 'group:GroupName'. "
+                        "Use 'jira roles <PROJECT>' to list available roles.",
+                    ),
                 ],
-                examples=['jira comment PROJ-123 "Fixed in commit abc123"'],
-                output_fields=["issue_key", "comment.id", "comment.body", "comment.author", "comment.created"],
-                next_actions=["get", "transition"],
+                examples=[
+                    'jira comment PROJ-123 "Fixed in commit abc123"',
+                    'jira comment PROJ-123 "Internal note" --visibility "role:Developers"',
+                ],
+                output_fields=[
+                    "issue_key", "comment.id", "comment.body", "comment.author",
+                    "comment.created", "comment.visibility",
+                ],
+                next_actions=["get", "transition", "roles"],
             ),
             Command(
                 name="edit-comment",
@@ -172,6 +183,17 @@ def get_tool_description() -> ToolDescription:
                 examples=["jira remove-label PROJ-123 urgent"],
                 output_fields=["issue_key", "labels_removed"],
                 next_actions=["get"],
+            ),
+            Command(
+                name="roles",
+                description="List available roles for a project (useful for comment --visibility)",
+                usage="jira roles <PROJECT_KEY>",
+                arguments=[
+                    Argument(name="project_key", description="Project key (e.g., LU, EX)", required=True),
+                ],
+                examples=["jira roles LU"],
+                output_fields=["project_key", "total", "roles[]"],
+                next_actions=["comment (with --visibility role:RoleName)"],
             ),
             Command(
                 name="components",

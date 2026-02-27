@@ -1,5 +1,6 @@
 """Unit tests for JIRA client."""
 
+import json
 from unittest.mock import patch
 
 import pytest
@@ -299,6 +300,93 @@ class TestAddComment:
 
         request_body = responses.calls[0].request.body
         assert b'"body": "Test body"' in request_body
+
+
+class TestAddCommentVisibility:
+    """Tests for add_comment with visibility."""
+
+    @responses.activate
+    def test_add_comment_with_role_visibility(self, client):
+        """Should include visibility in request body."""
+        responses.add(
+            responses.POST,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123/comment",
+            json={
+                "id": "12345",
+                "body": "Restricted comment",
+                "visibility": {"type": "role", "value": "Developers"},
+            },
+            status=201,
+        )
+
+        result = client.add_comment(
+            "PROJ-123",
+            "Restricted comment",
+            visibility={"type": "role", "value": "Developers"},
+        )
+        assert result["id"] == "12345"
+        assert result["visibility"]["type"] == "role"
+        assert result["visibility"]["value"] == "Developers"
+
+        request_body = json.loads(responses.calls[0].request.body)
+        assert request_body["visibility"] == {"type": "role", "value": "Developers"}
+
+    @responses.activate
+    def test_add_comment_with_group_visibility(self, client):
+        """Should include group visibility in request body."""
+        responses.add(
+            responses.POST,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123/comment",
+            json={"id": "12345", "body": "Group restricted"},
+            status=201,
+        )
+
+        client.add_comment(
+            "PROJ-123",
+            "Group restricted",
+            visibility={"type": "group", "value": "jira-users"},
+        )
+
+        request_body = json.loads(responses.calls[0].request.body)
+        assert request_body["visibility"] == {"type": "group", "value": "jira-users"}
+
+    @responses.activate
+    def test_add_comment_without_visibility(self, client):
+        """Should not include visibility key when not provided."""
+        responses.add(
+            responses.POST,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123/comment",
+            json={"id": "1"},
+            status=201,
+        )
+
+        client.add_comment("PROJ-123", "Public comment")
+
+        request_body = json.loads(responses.calls[0].request.body)
+        assert "visibility" not in request_body
+
+
+class TestGetProjectRoles:
+    """Tests for get_project_roles method."""
+
+    @responses.activate
+    def test_get_project_roles_success(self, client):
+        """Should return role name to URL mapping."""
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/project/PROJ/role",
+            json={
+                "Administrators": "https://jira.example.com/rest/api/2/project/PROJ/role/10001",
+                "Developers": "https://jira.example.com/rest/api/2/project/PROJ/role/10002",
+                "Users": "https://jira.example.com/rest/api/2/project/PROJ/role/10003",
+            },
+            status=200,
+        )
+
+        result = client.get_project_roles("PROJ")
+        assert "Administrators" in result
+        assert "Developers" in result
+        assert "Users" in result
 
 
 class TestGetTransitions:

@@ -460,21 +460,31 @@ class JiraClient:
         }
         return self._request("GET", f"issue/{key}/comment", params=params, context=key)
 
-    def add_comment(self, key: str, body: str) -> dict[str, Any]:
+    def add_comment(
+        self,
+        key: str,
+        body: str,
+        visibility: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """
         Add a comment to an issue.
 
         Args:
             key: Issue key
             body: Comment body text
+            visibility: Optional visibility restriction dict with "type" ("role" or "group")
+                        and "value" (role/group name), e.g. {"type": "role", "value": "Developers"}
 
         Returns:
             Created comment data
         """
+        json_data: dict[str, Any] = {"body": body}
+        if visibility:
+            json_data["visibility"] = visibility
         return self._request(
             "POST",
             f"issue/{key}/comment",
-            json_data={"body": body},
+            json_data=json_data,
             context=key,
         )
 
@@ -590,6 +600,22 @@ class JiraClient:
             }
         }
         return self._request("PUT", f"issue/{key}", json_data=body, context=key)
+
+    # =========================================================================
+    # Project Role Operations
+    # =========================================================================
+
+    def get_project_roles(self, project_key: str) -> dict[str, str]:
+        """
+        Get available roles for a project.
+
+        Args:
+            project_key: Project key (e.g., "LU")
+
+        Returns:
+            Dict mapping role name to role URL
+        """
+        return self._request("GET", f"project/{project_key}/role", context=project_key)
 
     # =========================================================================
     # Component and Version Operations
