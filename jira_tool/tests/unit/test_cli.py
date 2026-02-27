@@ -464,7 +464,7 @@ class TestCLIIssueComments:
 
     @responses.activate
     def test_comments_default_limit(self, runner, mock_env):
-        """Should use default limit of 5."""
+        """Should use default limit of 10."""
         responses.add(
             responses.GET,
             "https://jira.example.com/rest/api/2/issue/PROJ-123/comment",
@@ -475,9 +475,9 @@ class TestCLIIssueComments:
         result = runner.invoke(main, ["comments","PROJ-123"])
 
         assert result.exit_code == 0
-        # Check that limit was 5 (default)
+        # Check that limit was 10 (default)
         url = responses.calls[0].request.url
-        assert "maxResults=5" in url
+        assert "maxResults=10" in url
 
     @responses.activate
     def test_comments_custom_limit(self, runner, mock_env):

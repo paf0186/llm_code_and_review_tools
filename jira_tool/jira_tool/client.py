@@ -1,6 +1,7 @@
 """JIRA REST API client."""
 
 import random
+import sys
 import time
 from typing import Any
 from urllib.parse import urljoin
@@ -38,6 +39,7 @@ class JiraClient:
         max_retries: int = DEFAULT_MAX_RETRIES,
         retry_backoff: float = DEFAULT_RETRY_BACKOFF,
         retry_max_delay: float = DEFAULT_RETRY_MAX_DELAY,
+        debug: bool = False,
     ):
         """
         Initialize JIRA client.
@@ -48,12 +50,14 @@ class JiraClient:
             max_retries: Maximum number of retries for transient failures (default: 3)
             retry_backoff: Base delay for exponential backoff in seconds (default: 1.0)
             retry_max_delay: Maximum delay between retries in seconds (default: 30.0)
+            debug: Enable debug output to stderr
         """
         self.config = config
         self.timeout = timeout
         self.max_retries = max_retries
         self.retry_backoff = retry_backoff
         self.retry_max_delay = retry_max_delay
+        self.debug = debug
         self._session = requests.Session()
 
         # Set up authentication header
@@ -65,6 +69,30 @@ class JiraClient:
                 "Accept": "application/json",
             }
         )
+
+    def _debug(self, msg: str) -> None:
+        """Print debug message to stderr if debug mode is enabled."""
+        if self.debug:
+            print(f"[DEBUG] {msg}", file=sys.stderr)
+
+    def _debug_request(self, method: str, url: str,
+                       params: dict | None = None,
+                       json_data: dict | None = None) -> None:
+        """Log request details to stderr."""
+        if not self.debug:
+            return
+        self._debug(f"{method} {url}")
+        if params:
+            self._debug(f"  params: {params}")
+        if json_data:
+            self._debug(f"  body: {json_data}")
+
+    def _debug_response(self, response: requests.Response) -> None:
+        """Log response details to stderr."""
+        if not self.debug:
+            return
+        self._debug(f"  -> {response.status_code} "
+                     f"({len(response.content)} bytes)")
 
     def _build_url(self, endpoint: str) -> str:
         """Build full URL for API endpoint."""
@@ -236,6 +264,7 @@ class JiraClient:
         """
         url = self._build_url(endpoint)
         last_error: Exception | None = None
+        self._debug_request(method, url, params, json_data)
 
         for attempt in range(self.max_retries + 1):
             try:
@@ -246,6 +275,7 @@ class JiraClient:
                     json=json_data,
                     timeout=self.timeout,
                 )
+                self._debug_response(response)
                 return self._handle_response(response, context)
 
             except requests.exceptions.Timeout as e:
@@ -318,10 +348,12 @@ class JiraClient:
             kwargs["timeout"] = self.timeout
 
         last_error: Exception | None = None
+        self._debug(f"{method} {url} (raw)")
 
         for attempt in range(self.max_retries + 1):
             try:
                 response = self._session.request(method, url, **kwargs)
+                self._debug_response(response)
 
                 # Check for retryable HTTP errors
                 if response.status_code == 429:
@@ -1143,6 +1175,7 @@ class JiraClient:
         url = self._build_url(f"issue/{key}/attachments")
         headers = {"X-Atlassian-Token": "no-check"}
         last_error: Exception | None = None
+        self._debug(f"POST {url} (upload: {filename})")
 
         for attempt in range(self.max_retries + 1):
             try:
@@ -1161,6 +1194,7 @@ class JiraClient:
                         headers=post_headers,
                         timeout=self.timeout,
                     )
+                    self._debug_response(response)
 
                 # Check for retryable HTTP errors
                 if response.status_code == 429:

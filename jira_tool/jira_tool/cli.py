@@ -190,7 +190,7 @@ def get_client(ctx: click.Context) -> JiraClient:
         server_override=ctx.obj.get("server_override"),
         token_override=ctx.obj.get("token_override"),
     )
-    return JiraClient(config)
+    return JiraClient(config, debug=ctx.obj.get("debug", False))
 
 
 # =============================================================================
@@ -311,7 +311,7 @@ def issue_get(ctx: click.Context, key: str, fields: str | None, output_field_nam
 
 @main.command("comments")
 @click.argument("key")
-@click.option("--limit", default=5, help="Maximum number of comments to return (default: 5)")
+@click.option("--limit", default=10, help="Maximum number of comments to return (default: 10)")
 @click.option("--offset", default=0, help="Skip first N comments (default: 0)")
 @click.option("--all", "fetch_all", is_flag=True, help="Fetch all comments (use with caution)")
 @click.option("--summary-only", is_flag=True, help="Only return comment summary, not content")
@@ -1358,6 +1358,22 @@ def issue_update(
         sys.exit(handle_error(e, command, pretty))
     except ConfigError as e:
         sys.exit(handle_error(e, command, pretty))
+
+
+@main.command("assign")
+@click.argument("key")
+@click.argument("assignee")
+@click.pass_context
+def assign(ctx: click.Context, key: str, assignee: str) -> None:
+    """
+    Assign an issue to a user.
+
+    KEY is the issue key (e.g., PROJ-123) or a JIRA URL.
+    ASSIGNEE is the username. Use "" to unassign.
+    """
+    ctx.invoke(issue_update, key=key, assignee=assignee,
+               summary=None, description=None,
+               priority=None, labels=None)
 
 
 @main.command("attachments")
