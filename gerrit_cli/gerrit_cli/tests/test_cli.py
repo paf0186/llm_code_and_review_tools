@@ -322,42 +322,34 @@ class TestCmdWorkOnPatch:
     def test_work_on_patch_with_url(self):
         """Test work-on-patch with explicit URL."""
         from gerrit_cli.cli import cmd_work_on_patch
-        args = argparse.Namespace(
-            change_number=12345,
-            url="https://review.whamcloud.com/c/fs/lustre-release/+/12345",
-        )
-        with patch('gerrit_cli.cli.work_on_patch') as mock_work:
-            mock_work.return_value = (True, "Success")
-            cmd_work_on_patch(args)
-            mock_work.assert_called_once_with(args.url, args.change_number)
-
-    def test_work_on_patch_uses_session_url(self):
-        """Test work-on-patch uses session URL when not provided."""
-        from gerrit_cli.cli import cmd_work_on_patch
-        args = argparse.Namespace(
-            change_number=12345,
-            url=None,
-        )
+        url = "https://review.whamcloud.com/c/fs/lustre-release/+/12345"
+        args = argparse.Namespace(target=url)
         with patch('gerrit_cli.cli.work_on_patch') as mock_work, \
-             patch('gerrit_cli.cli.get_session_url') as mock_get_url:
-            mock_get_url.return_value = "https://example.com/series/12345"
+             patch('gerrit_cli.cli.GerritCommentsClient') as mock_cls:
+            mock_cls.parse_gerrit_url.return_value = (
+                "https://review.whamcloud.com", 12345)
             mock_work.return_value = (True, "Success")
             cmd_work_on_patch(args)
-            mock_get_url.assert_called_once()
-            mock_work.assert_called_once()
+            mock_work.assert_called_once_with(url, 12345)
 
-    def test_work_on_patch_no_url_no_session(self):
-        """Test work-on-patch fails without URL or session."""
+    def test_work_on_patch_with_change_number(self):
+        """Test work-on-patch with plain change number."""
         from gerrit_cli.cli import cmd_work_on_patch
-        args = argparse.Namespace(
-            change_number=12345,
-            url=None,
-        )
-        with patch('gerrit_cli.cli.get_session_url') as mock_get_url, \
-             pytest.raises(SystemExit) as exc_info:
-            mock_get_url.return_value = None
+        args = argparse.Namespace(target="12345")
+        with patch('gerrit_cli.cli.work_on_patch') as mock_work, \
+             patch.dict('os.environ', {'GERRIT_URL': 'https://review.whamcloud.com'}):
+            mock_work.return_value = (True, "Success")
             cmd_work_on_patch(args)
+            mock_work.assert_called_once_with(
+                "https://review.whamcloud.com/12345", 12345)
 
+    def test_work_on_patch_no_gerrit_url(self):
+        """Test work-on-patch fails with change number but no GERRIT_URL."""
+        from gerrit_cli.cli import cmd_work_on_patch
+        args = argparse.Namespace(target="12345")
+        with patch.dict('os.environ', {}, clear=True), \
+             pytest.raises(SystemExit) as exc_info:
+            cmd_work_on_patch(args)
         assert exc_info.value.code == 1
 
 

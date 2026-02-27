@@ -1783,6 +1783,31 @@ def cmd_watch(args):
         sys.exit(output_error(ErrorCode.API_ERROR, str(e), command, False))
 
 
+def cmd_set_topic(args):
+    """Set the topic on a Gerrit change."""
+    command = "set-topic"
+    pretty = getattr(args, 'pretty', False)
+
+    try:
+        base_url, change_number = GerritCommentsClient.parse_gerrit_url(args.url)
+        client = GerritCommentsClient()
+
+        result = client.set_topic(change_number, args.topic)
+
+        data = {
+            "success": True,
+            "change_number": change_number,
+            "topic": args.topic,
+        }
+        output_success(data, command, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except ValueError as e:
+        sys.exit(output_error(ErrorCode.INVALID_INPUT, str(e), command, pretty))
+    except Exception as e:
+        sys.exit(output_error(ErrorCode.API_ERROR, str(e), command, pretty))
+
+
 def cmd_message(args):
     """Post a top-level message on a Gerrit change."""
     command = "message"
@@ -2712,6 +2737,7 @@ def main():
         'info': cmd_info,
         'search': cmd_search,
         'watch': cmd_watch,
+        'set_topic': cmd_set_topic,
         'message': cmd_message,
         'explain': cmd_explain,
         'examples': cmd_examples,

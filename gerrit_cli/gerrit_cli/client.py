@@ -475,6 +475,84 @@ class GerritCommentsClient:
             "_number": change_number,
         }
 
+    def set_topic(
+        self,
+        change_number: int,
+        topic: str,
+    ) -> dict[str, Any]:
+        """Set the topic on a Gerrit change.
+
+        Tries REST API first, falls back to SSH if REST returns 401.
+
+        Args:
+            change_number: The change number
+            topic: The topic name to set
+
+        Returns:
+            Dict with change_number and topic
+        """
+        try:
+            self.rest.put(
+                f"/changes/{change_number}/topic",
+                json={"topic": topic},
+            )
+            return {"_number": change_number, "topic": topic}
+        except Exception as e:
+            if "401" not in str(e):
+                raise
+            return self._set_topic_via_ssh(change_number, topic)
+
+    def _set_topic_via_ssh(
+        self,
+        change_number: int,
+        topic: str,
+    ) -> dict[str, Any]:
+        """Set topic via Gerrit SSH interface.
+
+        Used as fallback when REST API returns 401.
+        """
+        import subprocess
+        from urllib.parse import urlparse
+
+        parsed = urlparse(self.url)
+        host = parsed.hostname
+        ssh_port = os.environ.get("GERRIT_SSH_PORT", "29418")
+        ssh_user = os.environ.get("GERRIT_SSH_USER", "")
+
+        if not ssh_user:
+            ssh_user = self._discover_ssh_user(host)
+
+        if not ssh_user:
+            raise Exception(
+                "Cannot determine SSH user for Gerrit. "
+                "Set GERRIT_SSH_USER env var or configure "
+                "a git remote pointing to Gerrit."
+            )
+
+        cmd = [
+            "ssh", "-p", ssh_port,
+            f"{ssh_user}@{host}",
+            "gerrit", "set-topic",
+            str(change_number),
+            topic,
+        ]
+
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr.decode().strip()
+            raise Exception(
+                f"SSH set-topic failed for {change_number}: {stderr}"
+            )
+        return {
+            "_number": change_number,
+            "topic": topic,
+        }
+
     @staticmethod
     def _discover_ssh_user(host: str) -> str:
         """Try to find SSH username for Gerrit.

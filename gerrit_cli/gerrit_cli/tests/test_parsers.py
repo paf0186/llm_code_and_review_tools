@@ -107,7 +107,9 @@ class TestParserHandlerIntegration:
             'maloo': MagicMock(),
             'info': MagicMock(),
             'watch': MagicMock(),
+            'set_topic': MagicMock(),
             'message': MagicMock(),
+            'search': MagicMock(),
             'explain': MagicMock(),
             'examples': MagicMock(),
             'done': MagicMock(),
@@ -229,8 +231,7 @@ class TestParserCreation:
         add_work_on_patch_parser(subparsers)
 
         args = parser.parse_args(['work-on-patch', '12345'])
-        assert args.change_number == 12345
-        assert args.url is None
+        assert args.target == '12345'
 
     def test_add_work_on_patch_parser_with_url(self):
         """Test work-on-patch parser with URL."""
@@ -241,10 +242,9 @@ class TestParserCreation:
         add_work_on_patch_parser(subparsers)
 
         args = parser.parse_args([
-            'work-on-patch', '12345', 'https://example.com/12345'
+            'work-on-patch', 'https://example.com/12345'
         ])
-        assert args.change_number == 12345
-        assert args.url == 'https://example.com/12345'
+        assert args.target == 'https://example.com/12345'
 
     def test_add_finish_patch_parser(self):
         """Test finish-patch parser is created correctly."""

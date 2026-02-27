@@ -899,6 +899,24 @@ def add_describe_parser(subparsers):
     return parser
 
 
+def add_set_topic_parser(subparsers):
+    """Add the 'set-topic' subcommand parser."""
+    parser = subparsers.add_parser(
+        "set-topic",
+        help="Set the topic on a Gerrit change",
+        description="Set or update the topic label on a Gerrit change. "
+                    "Topics group related changes together.",
+    )
+    parser.add_argument("url", help="Gerrit change URL or number")
+    parser.add_argument("topic", help="Topic name to set")
+    parser.add_argument(
+        "--pretty", "-p",
+        action="store_true",
+        help="Pretty-print JSON output",
+    )
+    return parser
+
+
 def add_message_parser(subparsers):
     """Add the 'message' subcommand parser."""
     parser = subparsers.add_parser(
@@ -1023,6 +1041,10 @@ def setup_parsers(subparsers, handlers):
 
     # Search
     add_search_parser(subparsers).set_defaults(func=handlers['search'])
+
+    # Topic management
+    add_set_topic_parser(subparsers).set_defaults(
+        func=handlers['set_topic'])
 
     # Top-level messaging
     add_message_parser(subparsers).set_defaults(func=handlers['message'])
