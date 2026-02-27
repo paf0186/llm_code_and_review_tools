@@ -1365,6 +1365,215 @@ def cmd_abandon(args):
         sys.exit(output_error(ErrorCode.API_ERROR, str(e), command, pretty))
 
 
+def cmd_restore(args):
+    """Restore an abandoned Gerrit change."""
+    command = "restore"
+    pretty = getattr(args, 'pretty', False)
+
+    try:
+        base_url, change_number = GerritCommentsClient.parse_gerrit_url(args.url)
+        client = GerritCommentsClient()
+
+        message = getattr(args, 'message', '') or ''
+        result = client.restore_change(change_number, message=message)
+
+        data = {
+            "success": True,
+            "change_number": change_number,
+            "status": result.get("status", "NEW"),
+            "subject": result.get("subject", ""),
+        }
+
+        output_success(data, command, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except ValueError as e:
+        sys.exit(output_error(ErrorCode.INVALID_INPUT, str(e), command, pretty))
+    except Exception as e:
+        error_str = str(e)
+        if "409" in error_str:
+            sys.exit(output_error(
+                ErrorCode.API_ERROR,
+                f"Change {change_number} cannot be restored "
+                f"(may not be abandoned)",
+                command, pretty
+            ))
+        sys.exit(output_error(ErrorCode.API_ERROR, str(e), command, pretty))
+
+
+def cmd_rebase(args):
+    """Trigger a server-side rebase of a Gerrit change."""
+    command = "rebase"
+    pretty = getattr(args, 'pretty', False)
+
+    try:
+        base_url, change_number = GerritCommentsClient.parse_gerrit_url(args.url)
+        client = GerritCommentsClient()
+
+        result = client.rebase_change(change_number)
+
+        data = {
+            "success": True,
+            "change_number": change_number,
+            "status": result.get("status", "NEW"),
+            "subject": result.get("subject", ""),
+        }
+
+        output_success(data, command, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except ValueError as e:
+        sys.exit(output_error(ErrorCode.INVALID_INPUT, str(e), command, pretty))
+    except Exception as e:
+        error_str = str(e)
+        if "409" in error_str:
+            sys.exit(output_error(
+                ErrorCode.API_ERROR,
+                f"Change {change_number} cannot be rebased "
+                f"(may have merge conflicts or already be up to date)",
+                command, pretty
+            ))
+        sys.exit(output_error(ErrorCode.API_ERROR, str(e), command, pretty))
+
+
+def cmd_vote(args):
+    """Set a review label/vote on a Gerrit change."""
+    command = "vote"
+    pretty = getattr(args, 'pretty', False)
+
+    try:
+        base_url, change_number = GerritCommentsClient.parse_gerrit_url(args.url)
+        client = GerritCommentsClient()
+
+        message = getattr(args, 'message', '') or ''
+        labels = {args.label: args.score}
+
+        client.post_review(
+            change_number=change_number,
+            revision_id="current",
+            message=message or None,
+            labels=labels,
+        )
+
+        data = {
+            "success": True,
+            "change_number": change_number,
+            "label": args.label,
+            "score": args.score,
+        }
+
+        output_success(data, command, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except ValueError as e:
+        sys.exit(output_error(ErrorCode.INVALID_INPUT, str(e), command, pretty))
+    except Exception as e:
+        sys.exit(output_error(ErrorCode.API_ERROR, str(e), command, pretty))
+
+
+def cmd_diff(args):
+    """Show what changed between two patchsets."""
+    command = "diff"
+    pretty = getattr(args, 'pretty', False)
+
+    try:
+        base_url, change_number = GerritCommentsClient.parse_gerrit_url(args.url)
+        client = GerritCommentsClient()
+
+        patchset_a = args.patchset_a
+        patchset_b = args.patchset_b
+
+        # If patchset_b not specified, use latest
+        if patchset_b is None:
+            change = client.get_change_detail(change_number)
+            revisions = change.get("revisions", {})
+            patchset_b = max(
+                (r.get("_number", 1) for r in revisions.values()),
+                default=1,
+            )
+
+        if patchset_a >= patchset_b:
+            sys.exit(output_error(
+                ErrorCode.INVALID_INPUT,
+                f"Base patchset ({patchset_a}) must be less than "
+                f"target patchset ({patchset_b})",
+                command, pretty
+            ))
+
+        # Get list of changed files between patchsets
+        files = client.get_files_between_patchsets(
+            change_number, patchset_a, patchset_b,
+        )
+
+        # Build file summary (skip /COMMIT_MSG and /MERGE_LIST)
+        file_list = []
+        for path, info in files.items():
+            if path.startswith("/"):
+                continue
+            file_list.append({
+                "path": path,
+                "status": info.get("status", "M"),
+                "lines_inserted": info.get("lines_inserted", 0),
+                "lines_deleted": info.get("lines_deleted", 0),
+            })
+
+        # Get diffs for each changed file
+        diffs = []
+        for f in file_list:
+            try:
+                diff_data = client.get_diff(
+                    change_number, f["path"],
+                    str(patchset_a), str(patchset_b),
+                )
+                # Format diff content from the API response
+                lines = []
+                for section in diff_data.get("content", []):
+                    if "ab" in section:
+                        # Common lines (context)
+                        for line in section["ab"]:
+                            lines.append(f" {line}")
+                    if "a" in section:
+                        for line in section["a"]:
+                            lines.append(f"-{line}")
+                    if "b" in section:
+                        for line in section["b"]:
+                            lines.append(f"+{line}")
+
+                diffs.append({
+                    "path": f["path"],
+                    "status": f["status"],
+                    "lines_inserted": f["lines_inserted"],
+                    "lines_deleted": f["lines_deleted"],
+                    "diff": "\n".join(lines),
+                })
+            except Exception:
+                diffs.append({
+                    "path": f["path"],
+                    "status": f["status"],
+                    "lines_inserted": f["lines_inserted"],
+                    "lines_deleted": f["lines_deleted"],
+                    "diff": "(diff unavailable)",
+                })
+
+        data = {
+            "change_number": change_number,
+            "patchset_a": patchset_a,
+            "patchset_b": patchset_b,
+            "files_changed": len(file_list),
+            "files": diffs,
+        }
+
+        output_success(data, command, pretty)
+        sys.exit(ExitCode.SUCCESS)
+
+    except ValueError as e:
+        sys.exit(output_error(ErrorCode.INVALID_INPUT, str(e), command, pretty))
+    except SystemExit:
+        raise
+    except Exception as e:
+        sys.exit(output_error(ErrorCode.API_ERROR, str(e), command, pretty))
+
+
 def _maloo_for_change(client, change_number, patchset=None):
     """Get Maloo CI results for a single change. Returns a dict."""
     change = client.get_change_detail(change_number)
@@ -2738,6 +2947,10 @@ def main():
         'search': cmd_search,
         'watch': cmd_watch,
         'set_topic': cmd_set_topic,
+        'restore': cmd_restore,
+        'rebase': cmd_rebase,
+        'vote': cmd_vote,
+        'diff': cmd_diff,
         'message': cmd_message,
         'explain': cmd_explain,
         'examples': cmd_examples,

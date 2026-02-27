@@ -553,6 +553,208 @@ class GerritCommentsClient:
             "topic": topic,
         }
 
+    def restore_change(
+        self,
+        change_number: int,
+        message: str = "",
+    ) -> dict[str, Any]:
+        """Restore an abandoned Gerrit change.
+
+        Tries REST API first, falls back to SSH if REST returns 401.
+
+        Args:
+            change_number: The change number
+            message: Optional message explaining why
+
+        Returns:
+            Response from the API (change info)
+        """
+        body: dict[str, Any] = {}
+        if message:
+            body["message"] = message
+        try:
+            return self.rest.post(
+                f"/changes/{change_number}/restore",
+                json=body,
+            )
+        except Exception as e:
+            if "401" not in str(e):
+                raise
+            return self._restore_via_ssh(change_number, message)
+
+    def _restore_via_ssh(
+        self,
+        change_number: int,
+        message: str = "",
+    ) -> dict[str, Any]:
+        """Restore a change via Gerrit SSH interface."""
+        import subprocess
+        from urllib.parse import urlparse
+
+        parsed = urlparse(self.url)
+        host = parsed.hostname
+        ssh_port = os.environ.get("GERRIT_SSH_PORT", "29418")
+        ssh_user = os.environ.get("GERRIT_SSH_USER", "")
+
+        if not ssh_user:
+            ssh_user = self._discover_ssh_user(host)
+
+        if not ssh_user:
+            raise Exception(
+                "Cannot determine SSH user for Gerrit. "
+                "Set GERRIT_SSH_USER env var or configure "
+                "a git remote pointing to Gerrit."
+            )
+
+        cmd = [
+            "ssh", "-p", ssh_port,
+            f"{ssh_user}@{host}",
+            "gerrit", "review", "--restore",
+        ]
+        if message:
+            cmd.extend(["--message", f'"{message}"'])
+        cmd.append(f"{change_number},1")
+
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr.decode().strip()
+            raise Exception(
+                f"SSH restore failed for {change_number}: {stderr}"
+            )
+        return {
+            "status": "NEW",
+            "_number": change_number,
+        }
+
+    def rebase_change(
+        self,
+        change_number: int,
+    ) -> dict[str, Any]:
+        """Trigger a server-side rebase of a Gerrit change.
+
+        Tries REST API first, falls back to SSH if REST returns 401.
+
+        Args:
+            change_number: The change number
+
+        Returns:
+            Response from the API (change info)
+        """
+        try:
+            return self.rest.post(
+                f"/changes/{change_number}/rebase",
+                json={},
+            )
+        except Exception as e:
+            if "401" not in str(e):
+                raise
+            return self._rebase_via_ssh(change_number)
+
+    def _rebase_via_ssh(
+        self,
+        change_number: int,
+    ) -> dict[str, Any]:
+        """Rebase a change via Gerrit SSH interface."""
+        import subprocess
+        from urllib.parse import urlparse
+
+        parsed = urlparse(self.url)
+        host = parsed.hostname
+        ssh_port = os.environ.get("GERRIT_SSH_PORT", "29418")
+        ssh_user = os.environ.get("GERRIT_SSH_USER", "")
+
+        if not ssh_user:
+            ssh_user = self._discover_ssh_user(host)
+
+        if not ssh_user:
+            raise Exception(
+                "Cannot determine SSH user for Gerrit. "
+                "Set GERRIT_SSH_USER env var or configure "
+                "a git remote pointing to Gerrit."
+            )
+
+        # Get current patchset number
+        change = self.get_change_detail(change_number)
+        revisions = change.get("revisions", {})
+        current_ps = 1
+        for rev_data in revisions.values():
+            ps = rev_data.get("_number", 1)
+            if ps > current_ps:
+                current_ps = ps
+
+        cmd = [
+            "ssh", "-p", ssh_port,
+            f"{ssh_user}@{host}",
+            "gerrit", "review", "--rebase",
+            f"{change_number},{current_ps}",
+        ]
+
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=60,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr.decode().strip()
+            raise Exception(
+                f"SSH rebase failed for {change_number}: {stderr}"
+            )
+        return {
+            "status": "NEW",
+            "_number": change_number,
+        }
+
+    def get_diff(
+        self,
+        change_number: int,
+        file_path: str,
+        revision_a: str,
+        revision_b: str = "current",
+    ) -> dict[str, Any]:
+        """Get the diff for a file between two revisions.
+
+        Args:
+            change_number: The change number
+            file_path: Path to the file
+            revision_a: Base revision (patchset number or SHA)
+            revision_b: Target revision (default "current")
+
+        Returns:
+            Diff info from the API
+        """
+        encoded_path = quote(file_path, safe="")
+        return self.rest.get(
+            f"/changes/{change_number}/revisions/{revision_b}"
+            f"/files/{encoded_path}/diff?base={revision_a}"
+        )
+
+    def get_files_between_patchsets(
+        self,
+        change_number: int,
+        patchset_a: int,
+        patchset_b: int,
+    ) -> dict[str, dict[str, Any]]:
+        """Get list of files changed between two patchsets.
+
+        Args:
+            change_number: The change number
+            patchset_a: Base patchset number
+            patchset_b: Target patchset number
+
+        Returns:
+            Dict mapping file paths to file info
+        """
+        return self.rest.get(
+            f"/changes/{change_number}/revisions/{patchset_b}"
+            f"/files?base={patchset_a}"
+        )
+
     @staticmethod
     def _discover_ssh_user(host: str) -> str:
         """Try to find SSH username for Gerrit.

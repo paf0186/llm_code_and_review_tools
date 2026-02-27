@@ -917,6 +917,93 @@ def add_set_topic_parser(subparsers):
     return parser
 
 
+def add_restore_parser(subparsers):
+    """Add the 'restore' subcommand parser."""
+    parser = subparsers.add_parser(
+        "restore",
+        help="Restore an abandoned Gerrit change",
+        description="Restore a previously abandoned change back to active status.",
+    )
+    parser.add_argument("url", help="Gerrit change URL or number")
+    parser.add_argument(
+        "-m", "--message",
+        help="Optional message explaining the restore",
+    )
+    parser.add_argument(
+        "--pretty", "-p",
+        action="store_true",
+        help="Pretty-print JSON output",
+    )
+    return parser
+
+
+def add_rebase_parser(subparsers):
+    """Add the 'rebase' subcommand parser."""
+    parser = subparsers.add_parser(
+        "rebase",
+        help="Trigger a server-side rebase",
+        description="Rebase a change on the server without checking it out locally. "
+                    "Useful for keeping a series current with its parent branch.",
+    )
+    parser.add_argument("url", help="Gerrit change URL or number")
+    parser.add_argument(
+        "--pretty", "-p",
+        action="store_true",
+        help="Pretty-print JSON output",
+    )
+    return parser
+
+
+def add_vote_parser(subparsers):
+    """Add the 'vote' subcommand parser."""
+    parser = subparsers.add_parser(
+        "vote",
+        aliases=["label"],
+        help="Set a review label (Code-Review, Verified, etc.)",
+        description="Set a review label/vote on a Gerrit change. "
+                    "Example: gc vote <url> Code-Review +2",
+    )
+    parser.add_argument("url", help="Gerrit change URL or number")
+    parser.add_argument("label", help="Label name (e.g. Code-Review, Verified)")
+    parser.add_argument(
+        "score", type=int,
+        help="Score value (e.g. -2, -1, 0, +1, +2)",
+    )
+    parser.add_argument(
+        "-m", "--message",
+        help="Optional review message",
+    )
+    parser.add_argument(
+        "--pretty", "-p",
+        action="store_true",
+        help="Pretty-print JSON output",
+    )
+    return parser
+
+
+def add_diff_parser(subparsers):
+    """Add the 'diff' subcommand parser."""
+    parser = subparsers.add_parser(
+        "diff",
+        help="Show what changed between two patchsets",
+        description="Compare two patchsets of a change to see what was modified. "
+                    "Useful for re-review after updates. "
+                    "Example: gc diff <url> 3 5",
+    )
+    parser.add_argument("url", help="Gerrit change URL or number")
+    parser.add_argument("patchset_a", type=int, help="Base patchset number")
+    parser.add_argument(
+        "patchset_b", type=int, nargs="?",
+        help="Target patchset number (default: latest)",
+    )
+    parser.add_argument(
+        "--pretty", "-p",
+        action="store_true",
+        help="Pretty-print JSON output",
+    )
+    return parser
+
+
 def add_message_parser(subparsers):
     """Add the 'message' subcommand parser."""
     parser = subparsers.add_parser(
@@ -1042,9 +1129,15 @@ def setup_parsers(subparsers, handlers):
     # Search
     add_search_parser(subparsers).set_defaults(func=handlers['search'])
 
-    # Topic management
+    # Change management
     add_set_topic_parser(subparsers).set_defaults(
         func=handlers['set_topic'])
+    add_restore_parser(subparsers).set_defaults(func=handlers['restore'])
+    add_rebase_parser(subparsers).set_defaults(func=handlers['rebase'])
+
+    # Review operations
+    add_vote_parser(subparsers).set_defaults(func=handlers['vote'])
+    add_diff_parser(subparsers).set_defaults(func=handlers['diff'])
 
     # Top-level messaging
     add_message_parser(subparsers).set_defaults(func=handlers['message'])
