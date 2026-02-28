@@ -213,12 +213,14 @@ def cmd_extract(args):
 
     try:
         include_system = getattr(args, 'include_system', False)
+        include_ci = getattr(args, 'include_ci', False)
         result = extract_comments(
             url=args.url,
             include_resolved=args.all,
             include_code_context=not args.no_context,
             context_lines=args.context_lines,
             include_system=include_system,
+            exclude_ci_bots=not include_ci,
         )
 
         if fields:
@@ -622,6 +624,7 @@ def cmd_series_comments(args):
 
     try:
         include_system = getattr(args, 'include_system', False)
+        include_ci = getattr(args, 'include_ci', False)
         finder = SeriesFinder()
         result = finder.get_series_comments(
             url=args.url,
@@ -630,6 +633,7 @@ def cmd_series_comments(args):
             context_lines=args.context_lines,
             show_progress=False,  # No progress in JSON mode
             include_system=include_system,
+            exclude_ci_bots=not include_ci,
         )
 
         if fields:
