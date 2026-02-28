@@ -77,6 +77,42 @@ class RebaseManager:
             pass
         return "origin"
 
+    def _get_gerrit_push_url(self) -> str:
+        """Get a push-capable URL for the Gerrit remote.
+
+        git:// URLs are read-only and can't be used for pushing.
+        This method checks the remote's push URL and, if it uses
+        git://, constructs an SSH URL instead.
+
+        Returns:
+            Remote name or SSH URL suitable for git push
+        """
+        import re
+
+        remote = self._get_gerrit_remote()
+        try:
+            # Check pushurl first, then fall back to url
+            result = self._run_git(["remote", "get-url", "--push", remote])
+            push_url = result.stdout.strip()
+        except (subprocess.CalledProcessError, Exception):
+            push_url = ""
+
+        # If push URL is already SSH, just use the remote name
+        if push_url.startswith("ssh://"):
+            return remote
+
+        # If push URL is git://, construct an SSH URL
+        if push_url.startswith("git://"):
+            match = re.match(r'git://([^/]+)(/.+?)(?:\.git)?$', push_url)
+            if match:
+                host = match.group(1)
+                path = match.group(2)
+                ssh_user = self.client._discover_ssh_user(host)
+                if ssh_user:
+                    return f"ssh://{ssh_user}@{host}:29418{path}"
+
+        return remote
+
     def _fetch_gerrit_commit(self, change_number: int) -> tuple[bool, str]:
         """Fetch a specific change from Gerrit.
 
@@ -980,14 +1016,14 @@ class RebaseManager:
             # Auto-push amended commit to Gerrit
             if amended_commit != session.target_commit:
                 try:
-                    remote = self._get_gerrit_remote()
+                    push_target = self._get_gerrit_push_url()
                     branch_info = self.client.get_change_detail(session.target_change)
                     branch = branch_info.get("branch", "master")
-                    self._run_git(["push", remote, f"HEAD:refs/for/{branch}"])
-                    lines.append(f"📤 Pushed to Gerrit ({remote} → refs/for/{branch})")
+                    self._run_git(["push", push_target, f"HEAD:refs/for/{branch}"])
+                    lines.append(f"📤 Pushed to Gerrit ({push_target} → refs/for/{branch})")
                 except subprocess.CalledProcessError as push_err:
                     lines.append(f"⚠ Auto-push failed: {push_err}")
-                    lines.append(f"  Run manually: git push {remote} HEAD:refs/for/{branch}")
+                    lines.append(f"  Run manually: git push origin HEAD:refs/for/{branch}")
                 lines.append("")
 
             lines.append("Next: gc next-patch")
