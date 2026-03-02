@@ -84,6 +84,12 @@ install_tools() {
     $PYTHON -m pip install -q -e "$SCRIPT_DIR/jenkins_tool"
     echo -e "${GREEN}✓${NC} jenkins installed"
 
+    # Install claude_images
+    echo ""
+    echo "Installing claude-images..."
+    $PYTHON -m pip install -q -e "$SCRIPT_DIR/claude_images"
+    echo -e "${GREEN}✓${NC} claude-images installed"
+
     # Install beads (bd)
     echo ""
     echo "Installing beads (bd)..."
@@ -106,9 +112,10 @@ install_tools() {
     echo ""
     echo "Installed tools:"
     echo "  jira            - JIRA issue tracking"
-    echo "  gerrit            - Gerrit code review (also: gc)"
+    echo "  gerrit          - Gerrit code review (also: gc)"
     echo "  maloo           - Maloo test results"
     echo "  jenkins         - Jenkins build server"
+    echo "  claude-images   - Extract images from Claude Code conversations"
     echo "  bd              - Beads task tracking"
     echo ""
     echo "Verify installation:"
@@ -116,6 +123,7 @@ install_tools() {
     echo "  gerrit --help"
     echo "  maloo --help"
     echo "  jenkins --help"
+    echo "  claude-images --help"
     echo "  bd --help"
     echo ""
     echo "Configuration:"
@@ -151,6 +159,9 @@ uninstall_tools() {
 
     echo "Uninstalling jenkins-tool..."
     $PYTHON -m pip uninstall -y jenkins-tool 2>/dev/null || true
+
+    echo "Uninstalling claude-images..."
+    $PYTHON -m pip uninstall -y claude-images 2>/dev/null || true
 
     echo "Uninstalling llm-tool-common..."
     $PYTHON -m pip uninstall -y llm-tool-common 2>/dev/null || true
