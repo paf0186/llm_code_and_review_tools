@@ -55,13 +55,14 @@ def add_extract_parser(subparsers):
     parser.add_argument(
         "--include-system",
         action="store_true",
-        help="Include system messages (e.g. 'Uploaded patch set N', rebases, topic changes)",
+        help="Include system and CI bot messages (patchset uploads, rebases, "
+             "Maloo results, Jenkins builds, Autotest retests)",
     )
     parser.add_argument(
         "--include-ci",
         action="store_true",
-        help="Include CI/build bot messages (Maloo, Jenkins, Autotest). "
-             "These are filtered out by default.",
+        help="Include CI/build bot messages only (Maloo, Jenkins, Autotest). "
+             "Also enabled by --include-system.",
     )
     return parser
 
@@ -268,13 +269,14 @@ def add_series_comments_parser(subparsers):
     parser.add_argument(
         "--include-system",
         action="store_true",
-        help="Include system messages (e.g. 'Uploaded patch set N', rebases, topic changes)",
+        help="Include system and CI bot messages (patchset uploads, rebases, "
+             "Maloo results, Jenkins builds, Autotest retests)",
     )
     parser.add_argument(
         "--include-ci",
         action="store_true",
-        help="Include CI/build bot messages (Maloo, Jenkins, Autotest). "
-             "These are filtered out by default.",
+        help="Include CI/build bot messages only (Maloo, Jenkins, Autotest). "
+             "Also enabled by --include-system.",
     )
     return parser
 
