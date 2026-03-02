@@ -150,9 +150,16 @@ class CommentExtractor:
         comments = self._parse_comments(raw_comments)
         threads = self._organize_into_threads(comments)
 
-        # Optionally filter to unresolved only
+        # Optionally filter to unresolved only.
+        # Always keep patchset-level comments — they are top-level
+        # review discussion and should not be silently filtered out
+        # even when marked resolved.
         if not include_resolved:
-            threads = [t for t in threads if not t.is_resolved]
+            threads = [
+                t for t in threads
+                if not t.is_resolved
+                or t.root_comment.file_path == "/PATCHSET_LEVEL"
+            ]
 
         # Add code context if requested
         if include_code_context:
