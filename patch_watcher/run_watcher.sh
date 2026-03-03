@@ -2,7 +2,8 @@
 # run_watcher.sh — Main entry point for the patch watcher daemon.
 #
 # Invoked by systemd timer (hourly) or manually for testing.
-# Runs Claude Code with constrained tools to check watched patches.
+# Runs orchestrator.py (pure code) for the mechanical work;
+# Claude is only invoked for JIRA research on unknown failures.
 
 set -euo pipefail
 
@@ -11,7 +12,7 @@ PATCHES_FILE="${PATCHES_FILE:-/shared/support_files/patches_to_watch.json}"
 REPORT_FILE="/tmp/patch_watcher_report.json"
 LOG_DIR="${HOME}/.patch_watcher"
 LOG_FILE="${LOG_DIR}/watcher.log"
-CLAUDE_RAW_OUTPUT="${LOG_DIR}/claude_raw_output.json"
+ORCHESTRATOR_OUTPUT="${LOG_DIR}/orchestrator_output.json"
 
 # Per-run log file for tail -f while running
 RUN_TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
@@ -60,101 +61,40 @@ if isinstance(data, dict):
         f.write('\n')
 "
 
-# Generate prompt
-PROMPT="$(bash "$WATCHER_DIR/prompt_template.sh")"
-
 # Clean up any previous report
 rm -f "$REPORT_FILE"
-
-# Run Claude Code with constrained tools
-# --model haiku: cheap and fast
-# --allowedTools: ONLY watcher_tool.sh (no Read, no raw Bash)
-#   In non-interactive -p mode, tools not in this list are denied
-#   (fail-closed: no user to prompt). This is the primary security gate.
-# --max-budget-usd: hard cost cap per run
-# --no-session-persistence: clean slate each run
-# --output-format json: gives us usage stats (input/output tokens, cost)
-#
-# NOTE: We do NOT use --permission-mode bypassPermissions. That would
-# override --allowedTools and grant access to ALL tools. Instead, we
-# rely on --allowedTools as a restrictive allowlist; non-listed tools
-# are denied in non-interactive mode.
-log "Invoking Claude Code (haiku, budget \$2.00)..."
-
-# Unset CLAUDECODE to allow running from within another Claude session
-# (e.g., during testing). The systemd timer won't have this set.
-unset CLAUDECODE 2>/dev/null || true
 
 # Clean up stale rate limit files (>1 day old)
 find /tmp -name 'patch_watcher_rates.*' -mtime +1 -delete 2>/dev/null || true
 
+log "Running orchestrator..."
+
 START_SECONDS=$SECONDS
 
-# Stderr goes to both log files for live monitoring
-claude -p \
-	--model haiku \
-	--allowedTools "Bash(${WATCHER_DIR}/watcher_tool.sh *)" \
-	--max-budget-usd 2.00 \
-	--output-format json \
-	--no-session-persistence \
-	"$PROMPT" < /dev/null > "$CLAUDE_RAW_OUTPUT" 2> >(tee -a "$LOG_FILE" >> "$RUN_LOG") || {
+# The orchestrator does the mechanical work in pure code.
+# If unknown failures exist, it invokes Claude for JIRA research.
+# Stderr has progress logs; stdout has a JSON summary.
+PATCHES_FILE="$PATCHES_FILE" \
+REPORT_FILE="$REPORT_FILE" \
+python3 "$WATCHER_DIR/orchestrator.py" \
+	> "$ORCHESTRATOR_OUTPUT" \
+	2> >(tee -a "$LOG_FILE" >> "$RUN_LOG") || {
 	EXITCODE=$?
-	log "ERROR: Claude Code exited with status $EXITCODE (PID $$)"
-	log "Raw output saved to $CLAUDE_RAW_OUTPUT"
+	log "ERROR: orchestrator.py exited with status $EXITCODE"
 	exit 1
 }
 
 ELAPSED=$(( SECONDS - START_SECONDS ))
-log "Claude Code finished in ${ELAPSED}s (PID $$)."
+log "Orchestrator finished in ${ELAPSED}s."
 
-# Extract usage stats from the JSON output
-# Claude JSON output schema:
-#   usage.inputTokens, usage.outputTokens, total_cost_usd, num_turns,
-#   duration_ms, duration_api_ms
-# Claude outputs JSONL (one JSON object per line). The result line
-# has type=result. Parse each line and find it.
-USAGE_STATS=$(python3 -c "
-import json, sys
-try:
-    data = None
-    with open('$CLAUDE_RAW_OUTPUT') as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-                if obj.get('type') == 'result':
-                    data = obj
-                    break
-            except json.JSONDecodeError:
-                continue
-    stats = {}
-    if data:
-        # modelUsage has the detailed per-model breakdown
-        model_usage = data.get('modelUsage', {})
-        for model, mu in model_usage.items():
-            stats['input_tokens'] = mu.get('inputTokens', 0)
-            stats['output_tokens'] = mu.get('outputTokens', 0)
-            stats['cache_read_tokens'] = mu.get('cacheReadInputTokens', 0)
-            stats['total_cost_usd'] = mu.get('costUSD', 0)
-        stats['num_turns'] = data.get('num_turns', 0)
-        stats['duration_api_ms'] = data.get('duration_api_ms', 0)
-        stats['duration_ms'] = data.get('duration_ms', 0)
-        # Fallback if modelUsage is empty
-        if 'total_cost_usd' not in stats:
-            stats['total_cost_usd'] = data.get('total_cost_usd', 0)
-    print(json.dumps(stats))
-except Exception as e:
-    print(json.dumps({'error': str(e)}))
-" 2>/dev/null || echo '{}')
-
-log "Usage: $USAGE_STATS"
+# Read orchestrator summary (JSON on stdout)
+ORCH_SUMMARY="$(cat "$ORCHESTRATOR_OUTPUT" 2>/dev/null || echo '{}')"
+log "Summary: $ORCH_SUMMARY"
 
 # Check if report was generated
 if [[ ! -f "$REPORT_FILE" ]]; then
 	log "WARNING: No report file generated at $REPORT_FILE"
-	log "Raw output saved to $CLAUDE_RAW_OUTPUT"
+	log "Orchestrator output: $ORCH_SUMMARY"
 	exit 0
 fi
 
@@ -167,14 +107,11 @@ import json, sys
 with open('$REPORT_FILE') as f:
     report = json.load(f)
 
-usage = json.loads('$USAGE_STATS') if '$USAGE_STATS' else {}
+orch = json.loads('''$ORCH_SUMMARY''') if '''$ORCH_SUMMARY''' else {}
 
 debug = report.setdefault('debug', {})
 debug['duration_seconds'] = $ELAPSED
-debug['input_tokens'] = usage.get('input_tokens', 0)
-debug['output_tokens'] = usage.get('output_tokens', 0)
-debug['total_cost_usd'] = usage.get('total_cost_usd', 0)
-debug['num_turns'] = usage.get('num_turns', 0)
+debug['llm_calls'] = orch.get('llm_calls', 0)
 
 with open('$REPORT_FILE', 'w') as f:
     json.dump(report, f, indent=4)

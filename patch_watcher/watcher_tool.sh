@@ -294,57 +294,20 @@ for test in enforced.get("tests", []):
                     })
                 continue
 
-            # No linked bug — search JIRA for each failing subtest
+            # No linked bug — collect failing subtests for LLM
+            # research. The orchestrator will search JIRA,
+            # assess relatedness, and take appropriate action.
             for subtest in suite.get("failed_subtests", []):
                 test_name = subtest.get("name", "")
                 error_msg = subtest.get("error", "")
-
-                # Search for existing bug
-                jql = (
-                    f'project in (LU, EX) AND '
-                    f'summary ~ "{test_name}" AND '
-                    f'status in '
-                    f'(New, "To Do", Open, "In Progress")'
-                )
-                search = run_tool(["jira", "search", jql])
-                found_bug = None
-                if (search and search.get("ok")
-                        and search.get("data", {}).get("issues")):
-                    issues = search["data"]["issues"]
-                    if issues:
-                        found_bug = issues[0].get("key", "")
-
-                if found_bug:
-                    # Link the bug and retest
-                    run_tool([
-                        "maloo", "link-bug", suite_id, found_bug])
-                    retest_result = run_tool([
-                        "maloo", "retest", session_id, found_bug])
-                    result["actions_taken"].append({
-                        "type": "link_bug",
-                        "description": (
-                            f"{test['test']} {suite_name} "
-                            f"{test_name}: linked {found_bug}, "
-                            f"retest requested"
-                        ),
-                        "session_id": session_id,
-                        "suite_id": suite_id,
-                        "bug": found_bug,
-                    })
-                else:
-                    # Unknown failure — LLM must assess relatedness
-                    # Keep output minimal: only what's needed for
-                    # the decision + IDs for follow-up actions
-                    result["needs_llm_decision"].append({
-                        "suite_id": suite_id,
-                        "session_id": session_id,
-                        "test": f"{test['test']} {suite_name} {test_name}",
-                        "error": error_msg[:200] if error_msg else "",
-                    })
-
-            # Break after first subtest batch per suite to avoid
-            # duplicate processing (subtests may repeat)
-            break
+                result["needs_llm_decision"].append({
+                    "suite_id": suite_id,
+                    "session_id": session_id,
+                    "test": (f"{test['test']} {suite_name}"
+                             f" {test_name}"),
+                    "error": (error_msg[:300]
+                              if error_msg else ""),
+                })
 
 print(json.dumps(result))
 PYEOF
