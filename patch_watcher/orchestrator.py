@@ -21,6 +21,7 @@ import json
 import os
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 WATCHER_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -72,30 +73,52 @@ def watcher(action, *args, stdin_data=None, timeout=60):
 # Phase 1: Check all patches
 # -------------------------------------------------------------------
 
+def _check_one_patch(i, patch):
+    """Check a single patch. Called from thread pool."""
+    url = patch["gerrit_url"]
+    ws = patch.get("watch_status", "active")
+    lp = str(patch.get("last_patchset", 0))
+    lr = str(patch.get("last_review_count", 0))
+
+    result = watcher(
+        "check-patch", url, str(i), ws, lp, lr)
+
+    if "error" in result and "raw" not in result:
+        result = {
+            "gerrit_url": url, "patch_index": i,
+            "skipped": False, "actions_taken": [],
+            "needs_llm_decision": [],
+            "errors": [f"check-patch: {result['error']}"],
+        }
+
+    return (i, patch, result)
+
+
 def check_all_patches(patches):
-    """Run check-patch for each patch, return per-patch results."""
-    results = []
-    for i, patch in enumerate(patches):
-        desc = patch.get("description", "?")[:50]
-        log(f"  [{i}] {desc}...")
+    """Run check-patch for all patches in parallel."""
+    results = [None] * len(patches)
 
-        url = patch["gerrit_url"]
-        ws = patch.get("watch_status", "active")
-        lp = str(patch.get("last_patchset", 0))
-        lr = str(patch.get("last_review_count", 0))
+    with ThreadPoolExecutor(max_workers=min(5, len(patches))) as pool:
+        futures = {
+            pool.submit(_check_one_patch, i, p): i
+            for i, p in enumerate(patches)
+        }
+        for future in as_completed(futures):
+            i = futures[future]
+            desc = patches[i].get("description", "?")[:50]
+            try:
+                results[i] = future.result()
+                log(f"  [{i}] {desc}... done")
+            except Exception as e:
+                log(f"  [{i}] {desc}... ERROR: {e}")
+                results[i] = (i, patches[i], {
+                    "gerrit_url": patches[i]["gerrit_url"],
+                    "patch_index": i,
+                    "skipped": False, "actions_taken": [],
+                    "needs_llm_decision": [],
+                    "errors": [f"check-patch exception: {e}"],
+                })
 
-        result = watcher(
-            "check-patch", url, str(i), ws, lp, lr)
-
-        if "error" in result and "raw" not in result:
-            result = {
-                "gerrit_url": url, "patch_index": i,
-                "skipped": False, "actions_taken": [],
-                "needs_llm_decision": [],
-                "errors": [f"check-patch: {result['error']}"],
-            }
-
-        results.append((i, patch, result))
     return results
 
 
