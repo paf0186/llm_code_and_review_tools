@@ -24,12 +24,17 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
-WATCHER_DIR = os.path.dirname(os.path.abspath(__file__))
-WATCHER_TOOL = os.path.join(WATCHER_DIR, "watcher_tool.sh")
-PATCHES_FILE = os.environ.get(
-    "PATCHES_FILE", "/shared/support_files/patches_to_watch.json")
-REPORT_FILE = os.environ.get(
-    "REPORT_FILE", "/tmp/patch_watcher_report.json")
+try:
+    from patch_watcher.config import load_config
+except ImportError:
+    # When run as a script (python3 patch_watcher/orchestrator.py),
+    # the parent directory may not be on sys.path.
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from patch_watcher.config import load_config
+
+# Module-level config — initialized lazily in main() so import
+# doesn't trigger validation (allows testing / partial imports).
+_config = None
 
 
 # -------------------------------------------------------------------
@@ -68,7 +73,7 @@ def run(args, stdin_data=None, timeout=60):
 def watcher(action, *args, stdin_data=None, timeout=120):
     """Call watcher_tool.sh <action> [args...]."""
     return run(
-        [WATCHER_TOOL, action] + list(args),
+        [_config.watcher_tool, action] + list(args),
         stdin_data=stdin_data, timeout=timeout)
 
 
@@ -425,7 +430,10 @@ def build_report(all_actions, all_errors, all_skipped,
 # -------------------------------------------------------------------
 
 def main():
-    with open(PATCHES_FILE) as f:
+    global _config
+    _config = load_config()
+
+    with open(_config.patches_file) as f:
         patches_data = json.load(f)
     patches = patches_data.get("patches", [])
     log(f"Checking {len(patches)} patches")
@@ -490,7 +498,7 @@ def main():
 
     report_json = json.dumps(report, indent=4)
     write_result = watcher(
-        "write-report", REPORT_FILE, stdin_data=report_json)
+        "write-report", _config.report_file, stdin_data=report_json)
     tool_calls += 1
 
     log(f"\nDone: {len(all_actions)} actions, "
