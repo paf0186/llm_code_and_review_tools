@@ -305,7 +305,12 @@ class SeriesFinder:
 
     def find_series_by_change(self, change_number: int, include_abandoned: bool = False) -> PatchSeries:
         """
-        Find all patches in the series containing the given change number.
+        Find all patches in the dependency chain below the given change.
+
+        Walks BACKWARD from the target change through parent commits until
+        reaching a merged commit or the end of the chain.  This returns only
+        the patches that the target depends on — not unrelated children that
+        other developers may have stacked on top.
 
         Args:
             change_number: Gerrit change number
@@ -336,32 +341,22 @@ class SeriesFinder:
         if not changes_map:
             return PatchSeries(target_change=change_number)
 
-        # Step 3: Find the tip of the series (change with no children)
-        tip_commit = self._find_tip(changes_map)
+        # Step 3: Find the target change's commit in the map
+        target_commit = self._find_commit_for_change(changes_map, change_number)
 
-        if not tip_commit:
+        if not target_commit:
             return PatchSeries(target_change=change_number)
 
-        tip_change = changes_map[tip_commit]['change']
+        # Step 4: Walk backwards from the TARGET (not the tip) to build
+        # the dependency chain.  This excludes children above the target.
+        chain = self._walk_chain_backwards(changes_map, target_commit)
 
-        # Step 4: If the tip is different from our starting point,
-        # get related changes from the tip for a complete view
-        if tip_change != change_number:
-            related = self._get_related_changes(tip_change)
-            changes_map = self._build_commit_map(related, status_filter)
-            tip_commit = self._find_tip(changes_map)
-            if not tip_commit:
-                return PatchSeries(target_change=change_number)
-
-        # Step 5: Walk backwards from tip to build the chain
-        chain = self._walk_chain_backwards(changes_map, tip_commit)
-
-        # Step 6: Check for stale changes (patches with newer patchsets)
+        # Step 5: Check for stale changes (patches with newer patchsets)
         stale_changes, stale_info, error, needs_reintegration = self._check_stale_changes(
-            chain, tip_change
+            chain, change_number
         )
 
-        # Step 7: Build PatchSeries result
+        # Step 6: Build PatchSeries result
         patches = []
         target_position = None
 
@@ -519,6 +514,17 @@ class SeriesFinder:
                 }
 
         return changes_map
+
+    def _find_commit_for_change(
+        self,
+        changes_map: dict[str, dict[str, Any]],
+        change_number: int,
+    ) -> Optional[str]:
+        """Find the commit hash for a given change number in the map."""
+        for commit_id, info in changes_map.items():
+            if info['change'] == change_number:
+                return commit_id
+        return None
 
     def _find_tip(self, changes_map: dict[str, dict[str, Any]]) -> Optional[str]:
         """Find the tip commit (the one with no children in the set)."""

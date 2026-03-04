@@ -220,6 +220,18 @@ class TestSeriesFinder:
         tip = finder._find_tip(changes_map)
         assert tip == "commit3"  # No other commit has this as parent
 
+    def test_find_commit_for_change(self):
+        finder = SeriesFinder(client=Mock())
+
+        changes_map = {
+            "commit1": {"change": 100, "parent": "base", "commit": "commit1"},
+            "commit2": {"change": 101, "parent": "commit1", "commit": "commit2"},
+        }
+
+        assert finder._find_commit_for_change(changes_map, 100) == "commit1"
+        assert finder._find_commit_for_change(changes_map, 101) == "commit2"
+        assert finder._find_commit_for_change(changes_map, 999) is None
+
     def test_walk_chain_backwards(self):
         finder = SeriesFinder(client=Mock())
 
@@ -264,13 +276,14 @@ class TestSeriesFinder:
 
     @patch.object(SeriesFinder, '_get_related_changes')
     def test_find_series_with_chain(self, mock_get_related):
+        """Walking backward from target 101 yields only its dependencies."""
         mock_client = Mock()
         mock_client.parse_gerrit_url.return_value = ("http://test", 101)
         mock_client.url = "http://test"
 
         finder = SeriesFinder(client=mock_client)
 
-        # Return a chain of 3 commits
+        # Related returns all 3 commits (including child 102 above target)
         mock_get_related.return_value = [
             {
                 "status": "NEW",
@@ -291,12 +304,48 @@ class TestSeriesFinder:
 
         series = finder.find_series("http://test/101")
 
-        assert len(series) == 3
+        # Only 100 (dep) and 101 (target) — 102 is a child, excluded
+        assert len(series) == 2
         assert series.patches[0].change_number == 100  # Base
-        assert series.patches[1].change_number == 101  # Target
-        assert series.patches[2].change_number == 102  # Tip
+        assert series.patches[1].change_number == 101  # Target (= tip)
         assert series.target_change == 101
         assert series.target_position == 2
+
+    @patch.object(SeriesFinder, '_get_related_changes')
+    def test_find_series_from_tip_includes_all(self, mock_get_related):
+        """Querying from the actual tip returns the full chain."""
+        mock_client = Mock()
+        mock_client.parse_gerrit_url.return_value = ("http://test", 102)
+        mock_client.url = "http://test"
+
+        finder = SeriesFinder(client=mock_client)
+
+        mock_get_related.return_value = [
+            {
+                "status": "NEW",
+                "_change_number": 102,
+                "commit": {"commit": "c3", "subject": "Third", "parents": [{"commit": "c2"}]},
+            },
+            {
+                "status": "NEW",
+                "_change_number": 101,
+                "commit": {"commit": "c2", "subject": "Second", "parents": [{"commit": "c1"}]},
+            },
+            {
+                "status": "NEW",
+                "_change_number": 100,
+                "commit": {"commit": "c1", "subject": "First", "parents": [{"commit": "base"}]},
+            },
+        ]
+
+        series = finder.find_series("http://test/102")
+
+        assert len(series) == 3
+        assert series.patches[0].change_number == 100
+        assert series.patches[1].change_number == 101
+        assert series.patches[2].change_number == 102
+        assert series.target_change == 102
+        assert series.target_position == 3
 
     @patch.object(SeriesFinder, '_get_related_changes')
     def test_detect_stale_change_still_in_series(self, mock_get_related):
@@ -335,7 +384,8 @@ class TestSeriesFinder:
 
         series = finder.find_series("http://test/101")
 
-        assert len(series) == 3
+        # Backward walk from 101 yields 100 + 101 (not 102)
+        assert len(series) == 2
         assert 101 in series.stale_changes
         assert series.error is not None
         assert "newer patchsets" in series.error
@@ -449,7 +499,8 @@ class TestSeriesFinder:
 
         series = finder.find_series("http://test/101")
 
-        assert len(series) == 3
+        # Backward walk from 101: only 100 + 101 (102 is a child, excluded)
+        assert len(series) == 2
         assert series.stale_changes == []
         assert series.error is None
 
