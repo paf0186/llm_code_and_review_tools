@@ -356,11 +356,25 @@ def build(
     result = _normalize_build(data, job_name=job_name)
     bnum = result.get("number", build_number)
 
+    # Auto-fetch error tail for failed sub-builds (limit 2, short timeout)
+    failed_runs = [r for r in result.get("runs", []) if r.get("result") == "FAILURE"]
+    for fr in failed_runs[:2]:
+        run_url = fr.get("url", "")
+        if run_url:
+            try:
+                url = run_url.rstrip("/") + "/consoleText"
+                resp = client.session.get(url, timeout=10)
+                resp.raise_for_status()
+                lines = resp.text.splitlines()
+                fr["error_tail"] = lines[-10:] if lines else []
+            except Exception:
+                fr["error_tail"] = ["(could not fetch console)"]
+
     next_actions = [
         f"jenkins console {job_name} {bnum} -- console output",
         f"jenkins builds {job_name} -- build history",
     ]
-    for fr in [r for r in result.get("runs", []) if r.get("result") == "FAILURE"][:2]:
+    for fr in failed_runs[:2]:
         cfg = fr.get("config", "")
         if cfg:
             next_actions.append(

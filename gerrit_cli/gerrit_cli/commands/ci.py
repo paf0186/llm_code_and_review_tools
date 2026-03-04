@@ -268,6 +268,50 @@ def cmd_info(args):
                         'message': text[:120],
                     })
 
+        # Parse Jenkins build status from messages
+        jenkins_build = None
+        for m in reversed(msgs):
+            author = m.get('author', {}).get('name', '')
+            ps = m.get('_revision_number', 0)
+            text = m.get('message', '')
+
+            if author in ('jenkins', 'Jenkins') and ps == current_patchset:
+                build_url = ''
+                build_number = ''
+                if 'build.whamcloud.com' in text:
+                    for word in text.split():
+                        if 'build.whamcloud.com' in word:
+                            build_url = word.rstrip(':')
+                            # Extract build number from URL
+                            parts = build_url.rstrip('/').split('/')
+                            if parts:
+                                build_number = parts[-1]
+                            break
+                if 'Build Successful' in text or 'Verified+1' in text:
+                    jenkins_build = {
+                        'status': 'SUCCESS',
+                        'build_url': build_url,
+                        'build_number': build_number,
+                    }
+                    break
+                elif 'Build Failed' in text or 'Verified-1' in text:
+                    reason = 'FAILURE'
+                    if 'ABORTED' in text:
+                        reason = 'ABORTED'
+                    jenkins_build = {
+                        'status': reason,
+                        'build_url': build_url,
+                        'build_number': build_number,
+                    }
+                    break
+                elif 'Build Started' in text:
+                    jenkins_build = {
+                        'status': 'BUILDING',
+                        'build_url': build_url,
+                        'build_number': build_number,
+                    }
+                    break
+
         # Summarize CI
         enforced_pass = sum(r['pass'] for r in enforced_results.values())
         enforced_fail = sum(r['fail'] for r in enforced_results.values())
@@ -299,6 +343,7 @@ def cmd_info(args):
                 "optional_fail": len(optional_failed),
                 "retests_pending": len(retests_pending),
             },
+            "jenkins_build": jenkins_build,
         }
 
         output_success(data, command, pretty)
