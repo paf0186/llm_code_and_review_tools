@@ -84,6 +84,12 @@ install_tools() {
     $PYTHON -m pip install -q -e "$SCRIPT_DIR/jenkins_tool"
     echo -e "${GREEN}✓${NC} jenkins installed"
 
+    # Install crash_tool
+    echo ""
+    echo "Installing crash-tool..."
+    $PYTHON -m pip install -q -e "$SCRIPT_DIR/crash_tool"
+    echo -e "${GREEN}✓${NC} crash-tool installed"
+
     # Install claude_images
     echo ""
     echo "Installing claude-images..."
@@ -115,6 +121,7 @@ install_tools() {
     echo "  gerrit          - Gerrit code review (also: gc)"
     echo "  maloo           - Maloo test results"
     echo "  jenkins         - Jenkins build server"
+    echo "  crash-tool      - Non-interactive crash dump analysis"
     echo "  claude-images   - Extract images from Claude Code conversations"
     echo "  bd              - Beads task tracking"
     echo ""
@@ -123,6 +130,7 @@ install_tools() {
     echo "  gerrit --help"
     echo "  maloo --help"
     echo "  jenkins --help"
+    echo "  crash-tool --help"
     echo "  claude-images --help"
     echo "  bd --help"
     echo ""

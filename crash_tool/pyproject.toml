@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crash-tool"
+version = "0.1.0"
+description = "Non-interactive crash dump analysis wrapper for LLM agents"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Claude", email = "claude@anthropic.com"}
+]
+keywords = ["crash", "vmcore", "kernel", "debugging", "cli", "agent"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Operating System Kernels :: Linux",
+]
+dependencies = [
+    "click>=8.0.0",
+    "llm-tool-common",
+]
+
+[project.scripts]
+crash-tool = "crash_tool.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["crash_tool*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP"]
+ignore = ["E501", "B008", "B905"]

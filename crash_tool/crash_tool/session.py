@@ -1,0 +1,214 @@
+"""Crash session management — runs crash non-interactively.
+
+Handles launching crash, sending commands, collecting per-command
+output, and tearing down cleanly.  All output is captured and
+returned as structured data — no interactive terminal required.
+"""
+
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+from dataclasses import dataclass, field
+
+
+# Sentinel used to delimit command output boundaries.
+_SENTINEL_PREFIX = "__CRASH_TOOL_DELIM_"
+
+
+@dataclass
+class CommandResult:
+    """Result of a single crash command."""
+    command: str
+    output: str
+    error: bool = False
+    error_message: str = ""
+
+
+@dataclass
+class SessionResult:
+    """Result of a crash session (one or more commands)."""
+    commands: list[CommandResult] = field(default_factory=list)
+    init_output: str = ""
+    crash_stderr: str = ""
+    return_code: int = 0
+
+
+def find_crash_binary() -> str:
+    """Locate the crash binary."""
+    path = shutil.which("crash")
+    if path:
+        return path
+    # Common locations
+    for candidate in ["/usr/bin/crash", "/usr/sbin/crash", "/usr/local/bin/crash"]:
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    raise FileNotFoundError("crash binary not found in PATH or standard locations")
+
+
+def run_session(
+    commands: list[str],
+    vmlinux: str | None = None,
+    vmcore: str | None = None,
+    crash_binary: str | None = None,
+    timeout: int = 120,
+    minimal: bool = False,
+    extra_args: list[str] | None = None,
+) -> SessionResult:
+    """Run one or more commands in a single crash session.
+
+    Each command's output is captured individually using sentinel
+    delimiters, so callers get clean per-command results.
+
+    Args:
+        commands: List of crash commands to execute.
+        vmlinux: Path to vmlinux (debug kernel).  Optional if crash
+            can auto-detect (e.g. running kernel with debuginfo).
+        vmcore: Path to vmcore dump file.  If None, analyzes the
+            running kernel via /dev/crash or /proc/kcore.
+        crash_binary: Path to crash binary.  Auto-detected if None.
+        timeout: Maximum seconds to wait for the session.
+        minimal: Use --minimal mode (faster init, fewer commands).
+        extra_args: Additional arguments to pass to crash.
+
+    Returns:
+        SessionResult with per-command output.
+    """
+    if crash_binary is None:
+        crash_binary = find_crash_binary()
+
+    # Build the command input file with sentinels between commands.
+    # We echo a unique sentinel after each command so we can split
+    # the combined output into per-command chunks.
+    input_lines: list[str] = []
+    sentinels: list[str] = []
+
+    for i, cmd in enumerate(commands):
+        sentinel = f"{_SENTINEL_PREFIX}{i}_{os.getpid()}"
+        sentinels.append(sentinel)
+        input_lines.append(cmd)
+        # Use 'eval' to echo our sentinel — it's always available
+        # even in --minimal mode.
+        input_lines.append(f'eval "{sentinel}"')
+
+    input_lines.append("quit")
+    input_text = "\n".join(input_lines) + "\n"
+
+    # Build crash argv
+    argv = [crash_binary, "-s"]
+    if minimal:
+        argv.append("--minimal")
+    if extra_args:
+        argv.extend(extra_args)
+    if vmlinux:
+        argv.append(vmlinux)
+    if vmcore:
+        argv.append(vmcore)
+
+    try:
+        proc = subprocess.run(
+            argv,
+            input=input_text,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        result = SessionResult(return_code=-1, crash_stderr="crash session timed out")
+        for cmd in commands:
+            result.commands.append(CommandResult(
+                command=cmd, output="", error=True,
+                error_message=f"Session timed out after {timeout}s",
+            ))
+        return result
+    except FileNotFoundError:
+        result = SessionResult(return_code=-1, crash_stderr=f"crash binary not found: {crash_binary}")
+        return result
+
+    # Parse output into per-command chunks using sentinels.
+    raw_output = proc.stdout
+    result = SessionResult(
+        crash_stderr=proc.stderr.strip(),
+        return_code=proc.returncode,
+    )
+
+    # Split on sentinel lines.  The output looks like:
+    #   <init output>
+    #   <command 1 output>
+    #   __CRASH_TOOL_DELIM_0_<pid> = <decimal>
+    #   <command 2 output>
+    #   __CRASH_TOOL_DELIM_1_<pid> = <decimal>
+    #   ...
+    # crash's eval prints: <expr> = <value>, so we match on the sentinel prefix.
+    chunks = _split_on_sentinels(raw_output, sentinels)
+
+    if chunks:
+        result.init_output = chunks[0].strip()
+        for i, cmd in enumerate(commands):
+            chunk_idx = i + 1
+            if chunk_idx < len(chunks):
+                output = chunks[chunk_idx].strip()
+                # Detect crash error messages in output
+                err = _detect_error(output)
+                result.commands.append(CommandResult(
+                    command=cmd,
+                    output=output,
+                    error=bool(err),
+                    error_message=err,
+                ))
+            else:
+                result.commands.append(CommandResult(
+                    command=cmd, output="", error=True,
+                    error_message="No output captured (crash may have exited early)",
+                ))
+    else:
+        # No sentinels found — dump everything as init_output
+        result.init_output = raw_output.strip()
+        for cmd in commands:
+            result.commands.append(CommandResult(
+                command=cmd, output="", error=True,
+                error_message="Could not parse command output",
+            ))
+
+    return result
+
+
+def _split_on_sentinels(output: str, sentinels: list[str]) -> list[str]:
+    """Split output on sentinel lines, returning chunks between them.
+
+    Returns a list where chunks[0] is everything before the first
+    sentinel, chunks[1] is between sentinel 0 and 1, etc.
+    """
+    if not sentinels:
+        return [output]
+
+    # Build a regex that matches any of our sentinel eval output lines.
+    # crash eval prints:  SENTINEL = <decimal_value>
+    # We also handle the case where it just prints the sentinel.
+    escaped = [re.escape(s) for s in sentinels]
+    pattern = re.compile(
+        r"^(?:" + "|".join(escaped) + r")(?:\s*=\s*\d+)?\s*$",
+        re.MULTILINE,
+    )
+
+    parts = pattern.split(output)
+    return parts
+
+
+def _detect_error(output: str) -> str:
+    """Detect common crash error patterns in command output."""
+    error_patterns = [
+        (r"crash: invalid command:", "invalid command"),
+        (r"crash: cannot resolve", "symbol resolution failed"),
+        (r"crash: cannot read", "memory read failed"),
+        (r"crash: invalid address", "invalid address"),
+        (r"No such file or directory", "file not found"),
+        (r"crash: .*not found in namelist", "symbol not in namelist"),
+        (r"bt: invalid task or pid", "invalid task/pid"),
+    ]
+    for pat, msg in error_patterns:
+        m = re.search(pat, output)
+        if m:
+            return msg
+    return ""
