@@ -121,18 +121,41 @@ def error_response_from_dict(
     }
 
 
-def format_json(envelope: dict[str, Any], pretty: bool = False) -> str:
+def format_json(
+    envelope: dict[str, Any],
+    pretty: bool = False,
+    full_envelope: bool = False,
+) -> str:
     """
-    Format envelope as JSON string.
+    Format response as JSON string.
+
+    By default, strips the envelope and outputs only the payload:
+    - Success responses: outputs the ``data`` value directly
+    - Error responses: outputs the ``error`` value directly
+
+    Use ``full_envelope=True`` to include the full wrapper (ok, data/error,
+    meta, next_actions).
 
     Args:
         envelope: The response envelope dictionary
         pretty: If True, format with indentation for human readability
+        full_envelope: If True, output the complete envelope; if False
+            (default), output only the data or error payload.
 
     Returns:
         JSON string
     """
+    if full_envelope:
+        obj = envelope
+    elif envelope.get("ok", True) and "data" in envelope:
+        obj = envelope["data"]
+    elif "error" in envelope:
+        obj = envelope["error"]
+    else:
+        # Fallback: output as-is (e.g. malformed envelope)
+        obj = envelope
+
     if pretty:
-        return json.dumps(envelope, indent=2, ensure_ascii=False)
-    return json.dumps(envelope, ensure_ascii=False)
+        return json.dumps(obj, indent=2, ensure_ascii=False)
+    return json.dumps(obj, ensure_ascii=False)
 

@@ -20,6 +20,9 @@ from .config import load_config
 
 TOOL_NAME = "jenkins"
 
+# Module-level flag for --envelope; toggled by the group callback.
+_FULL_ENVELOPE = False
+
 
 def _make_client(
     url: str | None = None,
@@ -33,7 +36,7 @@ def _make_client(
 
 
 def _output(envelope: dict[str, Any], pretty: bool) -> None:
-    click.echo(format_json(envelope, pretty=pretty))
+    click.echo(format_json(envelope, pretty=pretty, full_envelope=_FULL_ENVELOPE))
 
 
 def _error(
@@ -217,9 +220,12 @@ def _normalize_build(
 # ---- Commands ----
 
 @click.group()
-def main() -> None:
+@click.option("--envelope", is_flag=True, help="Include full response envelope (ok/data/meta wrapper)")
+@click.pass_context
+def main(ctx: click.Context, envelope: bool) -> None:
     """Jenkins build server CLI - query Lustre CI builds."""
-    pass
+    global _FULL_ENVELOPE
+    _FULL_ENVELOPE = envelope
 
 
 @main.command()
@@ -747,7 +753,7 @@ def describe(command_name: str | None, pretty: bool) -> None:
             env = error_response_from_dict(
                 "NOT_FOUND", f"Command '{command_name}' not found", TOOL_NAME, "describe"
             )
-            click.echo(format_json(env, pretty=pretty))
+            click.echo(format_json(env, pretty=pretty, full_envelope=_FULL_ENVELOPE))
             sys.exit(1)
             return
         data = matching[0].to_dict()
@@ -755,7 +761,7 @@ def describe(command_name: str | None, pretty: bool) -> None:
         data = tool_desc.to_dict()
 
     env = success_response(data, TOOL_NAME, "describe")
-    click.echo(format_json(env, pretty=pretty))
+    click.echo(format_json(env, pretty=pretty, full_envelope=_FULL_ENVELOPE))
 
 
 if __name__ == "__main__":

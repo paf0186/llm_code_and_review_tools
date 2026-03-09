@@ -150,6 +150,10 @@ cmd_continue_reintegration = _cmd_reintegration.cmd_continue_reintegration
 cmd_skip_reintegration = _cmd_reintegration.cmd_skip_reintegration
 
 
+# Module-level flag for --envelope; read by _helpers.output_result().
+FULL_ENVELOPE = False
+
+
 class _JsonErrorParser(argparse.ArgumentParser):
     """ArgumentParser that outputs errors as JSON instead of stderr.
 
@@ -163,7 +167,7 @@ class _JsonErrorParser(argparse.ArgumentParser):
             message,
             "cli",
         )
-        print(format_json(envelope))
+        print(format_json(envelope, full_envelope=FULL_ENVELOPE))
         sys.exit(ExitCode.INVALID_INPUT)
 
 
@@ -176,6 +180,11 @@ def main():
                     "Run 'gc describe' for machine-readable API documentation.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
+    )
+    parser.add_argument(
+        "--envelope",
+        action="store_true",
+        help="Include full response envelope (ok/data/meta wrapper)",
     )
     # Use _JsonErrorParser for subparsers so argument errors from
     # subcommands also produce JSON output. The top-level parser is
@@ -235,6 +244,9 @@ def main():
     setup_parsers(subparsers, handlers)
 
     args = parser.parse_args()
+
+    global FULL_ENVELOPE
+    FULL_ENVELOPE = getattr(args, "envelope", False)
 
     if not args.command:
         # If there's an active session, show status by default

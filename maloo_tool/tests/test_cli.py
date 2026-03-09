@@ -77,7 +77,7 @@ class TestSession:
             "script-1": "sanity",
         }
 
-        result = runner.invoke(main, ["session", SID_1])
+        result = runner.invoke(main, ["--envelope", "session", SID_1])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["session_id"] == SID_1
@@ -85,7 +85,7 @@ class TestSession:
 
     def test_session_not_found(self, runner, mock_client):
         mock_client.get_session.return_value = None
-        result = runner.invoke(main, ["session", SID_1])
+        result = runner.invoke(main, ["--envelope", "session", SID_1])
         env = json.loads(result.output)
         assert env["ok"] is False
         assert result.exit_code != 0
@@ -127,7 +127,7 @@ class TestFailures:
             "sub-39b": "test_39b",
         }
 
-        result = runner.invoke(main, ["failures", SID_1])
+        result = runner.invoke(main, ["--envelope", "failures", SID_1])
         env = _parse_output(result)
         assert env["ok"] is True
         assert len(env["data"]["failed_suites"]) == 1
@@ -144,7 +144,7 @@ class TestFailures:
         ]
         mock_client.resolve_test_set_names.return_value = {"sc-1": "sanity"}
 
-        result = runner.invoke(main, ["failures", SID_1])
+        result = runner.invoke(main, ["--envelope", "failures", SID_1])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["failed_suites"] == []
@@ -191,7 +191,7 @@ class TestSubtests:
     def test_subtests_defaults_to_fail(self, runner, mock_client):
         """Default (no flags) should show only FAIL subtests."""
         self._setup_subtests(mock_client)
-        result = runner.invoke(main, ["subtests", TSID_1])
+        result = runner.invoke(main, ["--envelope", "subtests", TSID_1])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["suite"] == "sanity"
@@ -203,7 +203,7 @@ class TestSubtests:
     def test_subtests_all_flag(self, runner, mock_client):
         """--all should show all subtests regardless of status."""
         self._setup_subtests(mock_client)
-        result = runner.invoke(main, ["subtests", TSID_1, "--all"])
+        result = runner.invoke(main, ["--envelope", "subtests", TSID_1, "--all"])
         env = _parse_output(result)
         assert env["data"]["shown"] == 2
         assert env["data"]["filter"] is None
@@ -211,7 +211,7 @@ class TestSubtests:
     def test_subtests_status_filter(self, runner, mock_client):
         """Explicit --status filter should work."""
         self._setup_subtests(mock_client)
-        result = runner.invoke(main, ["subtests", TSID_1, "--status", "PASS"])
+        result = runner.invoke(main, ["--envelope", "subtests", TSID_1, "--status", "PASS"])
         env = _parse_output(result)
         assert env["data"]["shown"] == 1
         assert env["data"]["subtests"][0]["name"] == "test_1a"
@@ -220,7 +220,7 @@ class TestSubtests:
     def test_subtests_all_overrides_status(self, runner, mock_client):
         """--all should override --status."""
         self._setup_subtests(mock_client)
-        result = runner.invoke(main, ["subtests", TSID_1, "--all", "--status", "PASS"])
+        result = runner.invoke(main, ["--envelope", "subtests", TSID_1, "--all", "--status", "PASS"])
         env = _parse_output(result)
         assert env["data"]["shown"] == 2
         assert env["data"]["filter"] is None
@@ -246,7 +246,7 @@ class TestReview:
             },
         ]
 
-        result = runner.invoke(main, ["review", "54321"])
+        result = runner.invoke(main, ["--envelope", "review", "54321"])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["review_id"] == 54321
@@ -254,7 +254,7 @@ class TestReview:
 
     def test_review_not_found(self, runner, mock_client):
         mock_client.find_sessions_by_review.return_value = []
-        result = runner.invoke(main, ["review", "99999"])
+        result = runner.invoke(main, ["--envelope", "review", "99999"])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["sessions"] == []
@@ -268,14 +268,14 @@ class TestBugs:
         mock_client.get_bug_links.return_value = [
             {"bug_upstream_id": "LU-12345", "buggable_id": TSID_1},
         ]
-        result = runner.invoke(main, ["bugs", TSID_1])
+        result = runner.invoke(main, ["--envelope", "bugs", TSID_1])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["count"] == 1
 
     def test_bugs_empty(self, runner, mock_client):
         mock_client.get_bug_links.return_value = []
-        result = runner.invoke(main, ["bugs", TSID_1])
+        result = runner.invoke(main, ["--envelope", "bugs", TSID_1])
         env = _parse_output(result)
         assert env["data"]["count"] == 0
 
@@ -286,14 +286,14 @@ class TestBugs:
 class TestLinkBug:
     def test_link_bug_success(self, runner, mock_client):
         mock_client.create_bug_link.return_value = "OK"
-        result = runner.invoke(main, ["link-bug", TSID_1, "LU-12345"])
+        result = runner.invoke(main, ["--envelope", "link-bug", TSID_1, "LU-12345"])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["bug"] == "LU-12345"
 
     def test_link_bug_error(self, runner, mock_client):
         mock_client.create_bug_link.return_value = "ERROR: bug not found"
-        result = runner.invoke(main, ["link-bug", TSID_1, "LU-99999"])
+        result = runner.invoke(main, ["--envelope", "link-bug", TSID_1, "LU-99999"])
         env = json.loads(result.output)
         assert env["ok"] is False
         assert result.exit_code != 0
@@ -335,7 +335,7 @@ class TestSessions:
             },
         ]
 
-        result = runner.invoke(main, ["sessions", "--branch", "lustre-master"])
+        result = runner.invoke(main, ["--envelope", "sessions", "--branch", "lustre-master"])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["count"] == 2
@@ -344,7 +344,7 @@ class TestSessions:
 
     def test_sessions_failed_filter(self, runner, mock_client):
         mock_client.get_sessions.return_value = []
-        result = runner.invoke(main, ["sessions", "--branch", "lustre-master", "--failed"])
+        result = runner.invoke(main, ["--envelope", "sessions", "--branch", "lustre-master", "--failed"])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["filters"]["failed_only"] is True
@@ -408,7 +408,7 @@ class TestTestHistory:
     def test_history_defaults_to_failures_only(self, runner, mock_client):
         """Default should show summary for all, but history only for failures."""
         mock_client.get_test_history.return_value = (self.HISTORY_DATA, "sanity")
-        result = runner.invoke(main, ["test-history", "test_39b"])
+        result = runner.invoke(main, ["--envelope", "test-history", "test_39b"])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["test_name"] == "test_39b"
@@ -423,7 +423,7 @@ class TestTestHistory:
     def test_history_all_flag(self, runner, mock_client):
         """--all should show all history entries."""
         mock_client.get_test_history.return_value = (self.HISTORY_DATA, "sanity")
-        result = runner.invoke(main, ["test-history", "test_39b", "--all"])
+        result = runner.invoke(main, ["--envelope", "test-history", "test_39b", "--all"])
         env = _parse_output(result)
         assert len(env["data"]["history"]) == 3
 
@@ -431,7 +431,7 @@ class TestTestHistory:
         """--limit should cap history entries."""
         many = self.HISTORY_DATA * 5  # 15 entries (5 failures)
         mock_client.get_test_history.return_value = (many, "sanity")
-        result = runner.invoke(main, ["test-history", "test_39b", "--all", "--limit", "3"])
+        result = runner.invoke(main, ["--envelope", "test-history", "test_39b", "--all", "--limit", "3"])
         env = _parse_output(result)
         assert len(env["data"]["history"]) == 3
 
@@ -449,7 +449,7 @@ class TestTestHistory:
 
     def test_history_empty(self, runner, mock_client):
         mock_client.get_test_history.return_value = ([], None)
-        result = runner.invoke(main, ["test-history", "test_nonexistent"])
+        result = runner.invoke(main, ["--envelope", "test-history", "test_nonexistent"])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["occurrences"] == 0
@@ -476,7 +476,7 @@ class TestQueue:
 
         with patch("maloo_tool.cli._resolve_review_to_revision",
                     return_value="abc123def456"):
-            result = runner.invoke(main, ["queue", "--review", "54321"])
+            result = runner.invoke(main, ["--envelope", "queue", "--review", "54321"])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["count"] == 1
@@ -485,13 +485,13 @@ class TestQueue:
 
     def test_queue_by_status(self, runner, mock_client):
         mock_client.get_test_queues.return_value = []
-        result = runner.invoke(main, ["queue", "--status", "Queued"])
+        result = runner.invoke(main, ["--envelope", "queue", "--status", "Queued"])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["count"] == 0
 
     def test_queue_requires_filter(self, runner, mock_client):
-        result = runner.invoke(main, ["queue"])
+        result = runner.invoke(main, ["--envelope", "queue"])
         env = json.loads(result.output)
         assert env["ok"] is False
         assert "filter" in env["error"]["message"].lower()
@@ -529,7 +529,7 @@ class TestTopFailures:
             10,
         )
 
-        result = runner.invoke(main, ["top-failures", "lustre-master"])
+        result = runner.invoke(main, ["--envelope", "top-failures", "lustre-master"])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["branch"] == "lustre-master"
@@ -540,7 +540,7 @@ class TestTopFailures:
 
     def test_top_failures_empty(self, runner, mock_client):
         mock_client.get_top_failures.return_value = ([], 0, 0)
-        result = runner.invoke(main, ["top-failures"])
+        result = runner.invoke(main, ["--envelope", "top-failures"])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["top_failures"] == []
@@ -552,7 +552,7 @@ class TestTopFailures:
 class TestRetest:
     def test_retest_success(self, runner, mock_client):
         mock_client.retest.return_value = "HTTP 200"
-        result = runner.invoke(main, ["retest", SID_1, "LU-19487"])
+        result = runner.invoke(main, ["--envelope", "retest", SID_1, "LU-19487"])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["session_id"] == SID_1
@@ -574,7 +574,7 @@ class TestLogs:
             zf.writestr("console.log", "test output line 1\ntest output line 2\n")
         mock_client.download_logs.return_value = buf.getvalue()
 
-        result = runner.invoke(main, ["logs", TSID_1, "--output-dir", "/tmp/test_maloo_logs_unit"])
+        result = runner.invoke(main, ["--envelope", "logs", TSID_1, "--output-dir", "/tmp/test_maloo_logs_unit"])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["test_set_id"] == TSID_1
@@ -583,7 +583,7 @@ class TestLogs:
     def test_logs_download_error(self, runner, mock_client):
         """Logs command should handle download failures."""
         mock_client.download_logs.side_effect = Exception("connection timeout")
-        result = runner.invoke(main, ["logs", TSID_1])
+        result = runner.invoke(main, ["--envelope", "logs", TSID_1])
         env = json.loads(result.output)
         assert env["ok"] is False
         assert result.exit_code != 0
@@ -659,7 +659,7 @@ class TestUUIDExtraction:
         mock_client.resolve_test_set_names.return_value = {}
 
         url = f"https://testing.whamcloud.com/test_sessions/{SID_1}"
-        result = runner.invoke(main, ["session", url])
+        result = runner.invoke(main, ["--envelope", "session", url])
         env = _parse_output(result)
         assert env["ok"] is True
         mock_client.get_session.assert_called_with(SID_1)
@@ -749,14 +749,14 @@ class TestRaiseBug:
             "url": "https://jira.whamcloud.com/browse/LU-99999",
             "flash": "Created LU-99999",
         }
-        result = runner.invoke(main, ["raise-bug", TSID_1, "--project", "LU", "--summary", "test bug"])
+        result = runner.invoke(main, ["--envelope", "raise-bug", TSID_1, "--project", "LU", "--summary", "test bug"])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["buggable_id"] == TSID_1
 
     def test_raise_bug_runtime_error(self, runner, mock_client):
         mock_client.raise_bug.side_effect = RuntimeError("JIRA connection failed")
-        result = runner.invoke(main, ["raise-bug", TSID_1])
+        result = runner.invoke(main, ["--envelope", "raise-bug", TSID_1])
         env = json.loads(result.output)
         assert env["ok"] is False
         assert "JIRA connection" in env["error"]["message"]
@@ -764,7 +764,7 @@ class TestRaiseBug:
 
     def test_raise_bug_generic_error(self, runner, mock_client):
         mock_client.raise_bug.side_effect = Exception("unexpected")
-        result = runner.invoke(main, ["raise-bug", TSID_1])
+        result = runner.invoke(main, ["--envelope", "raise-bug", TSID_1])
         env = json.loads(result.output)
         assert env["ok"] is False
         assert result.exit_code != 0
@@ -774,7 +774,7 @@ class TestRaiseBug:
             "ticket": "LU-100", "url": "", "flash": "ok"
         }
         result = runner.invoke(main, [
-            "raise-bug", TSID_1, "--type", "SubTest",
+            "--envelope", "raise-bug", TSID_1, "--type", "SubTest",
             "--summary", "subtest bug",
         ])
         env = _parse_output(result)
@@ -788,7 +788,7 @@ class TestQueueBranchResolution:
     def test_queue_by_branch(self, runner, mock_client):
         """--branch should resolve branch name to job name."""
         mock_client.get_test_queues.return_value = []
-        result = runner.invoke(main, ["queue", "--branch", "master"])
+        result = runner.invoke(main, ["--envelope", "queue", "--branch", "master"])
         env = _parse_output(result)
         assert env["ok"] is True
         # Should resolve 'master' to 'lustre-reviews'
@@ -803,7 +803,7 @@ class TestQueueBranchResolution:
                 "review_id": None, "review_patch": None,
             }
         ]
-        result = runner.invoke(main, ["queue", "--build", "27341"])
+        result = runner.invoke(main, ["--envelope", "queue", "--build", "27341"])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["queue_entries"][0]["buildno"] == 27341
@@ -811,7 +811,7 @@ class TestQueueBranchResolution:
     def test_queue_review_resolve_failure(self, runner, mock_client):
         """When gerrit CLI fails to resolve, should error."""
         with patch("maloo_tool.cli._resolve_review_to_revision", return_value=None):
-            result = runner.invoke(main, ["queue", "--review", "64266"])
+            result = runner.invoke(main, ["--envelope", "queue", "--review", "64266"])
         env = json.loads(result.output)
         assert env["ok"] is False
         assert "resolve" in env["error"]["message"].lower()
@@ -820,7 +820,7 @@ class TestQueueBranchResolution:
         """Commit hash should be passed through without resolution."""
         mock_client.get_test_queues.return_value = []
         result = runner.invoke(main, [
-            "queue", "--review", "7b77eeb0190d6d93880951533c2e1d1145780375"
+            "--envelope", "queue", "--review", "7b77eeb0190d6d93880951533c2e1d1145780375"
         ])
         env = _parse_output(result)
         params = mock_client.get_test_queues.call_args[0][0]
@@ -828,7 +828,7 @@ class TestQueueBranchResolution:
 
     def test_queue_api_error(self, runner, mock_client):
         mock_client.get_test_queues.side_effect = Exception("API down")
-        result = runner.invoke(main, ["queue", "--status", "Running"])
+        result = runner.invoke(main, ["--envelope", "queue", "--status", "Running"])
         env = json.loads(result.output)
         assert env["ok"] is False
         assert result.exit_code != 0
@@ -840,20 +840,20 @@ class TestQueueBranchResolution:
 class TestRetestExtended:
     def test_retest_all_option(self, runner, mock_client):
         mock_client.retest.return_value = "OK"
-        result = runner.invoke(main, ["retest", SID_1, "LU-19487", "--option", "all"])
+        result = runner.invoke(main, ["--envelope", "retest", SID_1, "LU-19487", "--option", "all"])
         env = _parse_output(result)
         assert env["data"]["retest_option"] == "all"
 
     def test_retest_livedebug_option(self, runner, mock_client):
         mock_client.retest.return_value = "OK"
-        result = runner.invoke(main, ["retest", SID_1, "LU-19487", "--option", "livedebug"])
+        result = runner.invoke(main, ["--envelope", "retest", SID_1, "LU-19487", "--option", "livedebug"])
         env = _parse_output(result)
         assert env["data"]["retest_option"] == "livedebug"
 
     def test_retest_extracts_uuid_from_url(self, runner, mock_client):
         mock_client.retest.return_value = "OK"
         url = f"https://testing.whamcloud.com/test_sessions/{SID_1}"
-        result = runner.invoke(main, ["retest", url, "LU-100"])
+        result = runner.invoke(main, ["--envelope", "retest", url, "LU-100"])
         env = _parse_output(result)
         assert env["data"]["session_id"] == SID_1
 
@@ -873,7 +873,7 @@ class TestLogsGrep:
         mock_client.download_logs.return_value = buf.getvalue()
 
         result = runner.invoke(main, [
-            "logs", TSID_1,
+            "--envelope", "logs", TSID_1,
             "--output-dir", "/tmp/test_maloo_grep",
             "--grep", "test_81a",
         ])
@@ -894,7 +894,7 @@ class TestLogsGrep:
         mock_client.download_logs.return_value = buf.getvalue()
 
         result = runner.invoke(main, [
-            "logs", TSID_1,
+            "--envelope", "logs", TSID_1,
             "--output-dir", "/tmp/test_maloo_grep2",
             "--grep", "nonexistent_pattern",
         ])
@@ -909,7 +909,7 @@ class TestLogsGrep:
 class TestSessionsExtended:
     def test_sessions_api_error(self, runner, mock_client):
         mock_client.get_sessions.side_effect = Exception("timeout")
-        result = runner.invoke(main, ["sessions", "--branch", "lustre-master"])
+        result = runner.invoke(main, ["--envelope", "sessions", "--branch", "lustre-master"])
         env = json.loads(result.output)
         assert env["ok"] is False
         assert result.exit_code != 0
@@ -917,7 +917,7 @@ class TestSessionsExtended:
     def test_sessions_no_filters(self, runner, mock_client):
         """Sessions without filters should still work (uses default days)."""
         mock_client.get_sessions.return_value = []
-        result = runner.invoke(main, ["sessions"])
+        result = runner.invoke(main, ["--envelope", "sessions"])
         env = _parse_output(result)
         assert env["ok"] is True
         assert env["data"]["filters"] == {}
@@ -933,7 +933,7 @@ class TestSessionsExtended:
                 "duration": 100, "trigger_job": "lustre-master",
             },
         ]
-        result = runner.invoke(main, ["sessions"])
+        result = runner.invoke(main, ["--envelope", "sessions"])
         env = _parse_output(result)
         # Should have next_actions for failed session
         assert env.get("next_actions") is not None
@@ -946,7 +946,7 @@ class TestSessionsExtended:
 class TestTopFailuresExtended:
     def test_top_failures_api_error(self, runner, mock_client):
         mock_client.get_top_failures.side_effect = Exception("connection refused")
-        result = runner.invoke(main, ["top-failures"])
+        result = runner.invoke(main, ["--envelope", "top-failures"])
         env = json.loads(result.output)
         assert env["ok"] is False
         assert result.exit_code != 0
@@ -954,7 +954,7 @@ class TestTopFailuresExtended:
     def test_top_failures_with_options(self, runner, mock_client):
         mock_client.get_top_failures.return_value = ([], 0, 0)
         result = runner.invoke(main, [
-            "top-failures", "lustre-b2_15",
+            "--envelope", "top-failures", "lustre-b2_15",
             "--days", "30", "--limit", "5", "--sessions", "100",
         ])
         env = _parse_output(result)
@@ -971,8 +971,64 @@ class TestTopFailuresExtended:
             }],
             5, 5,
         )
-        result = runner.invoke(main, ["top-failures"])
+        result = runner.invoke(main, ["--envelope", "top-failures"])
         env = _parse_output(result)
         assert env.get("next_actions") is not None
         assert any("failures" in a for a in env["next_actions"])
         assert any("bugs" in a for a in env["next_actions"])
+
+# -- No-envelope default behavior --
+
+
+class TestNoEnvelopeDefault:
+    """Verify that without --envelope, output is stripped to just data/error."""
+
+    def test_success_outputs_data_only(self, runner, mock_client):
+        """Without --envelope, success output should be the data dict directly."""
+        mock_client.find_sessions_by_review.return_value = [
+            {
+                "id": SID_1,
+                "test_group": "full",
+                "test_name": "lustre-master--full--1.10",
+                "test_host": "host1",
+                "submission": "2026-01-15T10:00:00.000Z",
+                "enforcing": True,
+                "test_sets_passed_count": 5,
+                "test_sets_failed_count": 0,
+                "test_sets_count": 5,
+                "duration": 3600,
+            },
+        ]
+
+        result = runner.invoke(main, ["review", "54321"])
+        out = json.loads(result.output)
+        # Should NOT have envelope keys
+        assert "ok" not in out
+        assert "meta" not in out
+        # Should have the data payload directly
+        assert out["review_id"] == 54321
+        assert out["session_count"] == 1
+
+    def test_error_outputs_error_only(self, runner, mock_client):
+        """Without --envelope, error output should be the error dict directly."""
+        result = runner.invoke(main, ["--envelope", "queue"])
+        env = json.loads(result.output)
+        # With envelope, error has wrapper
+        assert env["ok"] is False
+        assert "error" in env
+
+        # Without envelope, error output is just the error dict
+        result = runner.invoke(main, ["queue"])
+        out = json.loads(result.output)
+        assert "ok" not in out
+        assert "meta" not in out
+        assert out["code"] == "MISSING_FILTER"
+
+    def test_envelope_flag_preserves_wrapper(self, runner, mock_client):
+        """With --envelope, output should have the full ok/data/meta wrapper."""
+        mock_client.find_sessions_by_review.return_value = []
+        result = runner.invoke(main, ["--envelope", "review", "99999"])
+        out = json.loads(result.output)
+        assert out["ok"] is True
+        assert "data" in out
+        assert "meta" in out

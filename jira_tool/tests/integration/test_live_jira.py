@@ -85,7 +85,7 @@ class TestServerConnectivity:
 
     def test_cli_config_test(self, runner):
         """CLI config test should succeed."""
-        result = runner.invoke(main, ["config", "test"])
+        result = runner.invoke(main, ["--envelope", "config", "test"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -145,7 +145,7 @@ class TestIssueSearch:
 
     def test_cli_search(self, runner, project):
         """CLI search should work."""
-        result = runner.invoke(main, ["issue", "search", f"project = {project} ORDER BY created DESC", "--limit", "3"])
+        result = runner.invoke(main, ["--envelope", "issue", "search", f"project = {project} ORDER BY created DESC", "--limit", "3"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -209,7 +209,7 @@ class TestIssueGet:
     def test_cli_get_issue(self, runner, project):
         """CLI issue get should work."""
         # Find an issue first
-        search_result = runner.invoke(main, ["issue", "search", f"project = {project}", "--limit", "1"])
+        search_result = runner.invoke(main, ["--envelope", "issue", "search", f"project = {project}", "--limit", "1"])
         search_data = json.loads(search_result.output)
         if not search_data["data"]["issues"]:
             pytest.skip("No issues found")
@@ -217,7 +217,7 @@ class TestIssueGet:
         issue_key = search_data["data"]["issues"][0]["key"]
 
         # Get it via CLI
-        result = runner.invoke(main, ["issue", "get", issue_key])
+        result = runner.invoke(main, ["--envelope", "issue", "get", issue_key])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -264,14 +264,14 @@ class TestComments:
 
     def test_cli_comments(self, runner, project):
         """CLI comments should work."""
-        search_result = runner.invoke(main, ["issue", "search", f"project = {project}", "--limit", "1"])
+        search_result = runner.invoke(main, ["--envelope", "issue", "search", f"project = {project}", "--limit", "1"])
         search_data = json.loads(search_result.output)
         if not search_data["data"]["issues"]:
             pytest.skip("No issues found")
 
         issue_key = search_data["data"]["issues"][0]["key"]
 
-        result = runner.invoke(main, ["issue", "comments", issue_key, "--limit", "3"])
+        result = runner.invoke(main, ["--envelope", "issue", "comments", issue_key, "--limit", "3"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -302,14 +302,14 @@ class TestTransitions:
 
     def test_cli_transitions(self, runner, project):
         """CLI transitions should work."""
-        search_result = runner.invoke(main, ["issue", "search", f"project = {project}", "--limit", "1"])
+        search_result = runner.invoke(main, ["--envelope", "issue", "search", f"project = {project}", "--limit", "1"])
         search_data = json.loads(search_result.output)
         if not search_data["data"]["issues"]:
             pytest.skip("No issues found")
 
         issue_key = search_data["data"]["issues"][0]["key"]
 
-        result = runner.invoke(main, ["issue", "transitions", issue_key])
+        result = runner.invoke(main, ["--envelope", "issue", "transitions", issue_key])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -323,7 +323,7 @@ class TestResponseEnvelope:
 
     def test_success_envelope_structure(self, runner, project):
         """Success responses should have consistent structure."""
-        result = runner.invoke(main, ["issue", "search", f"project = {project}", "--limit", "1"])
+        result = runner.invoke(main, ["--envelope", "issue", "search", f"project = {project}", "--limit", "1"])
         data = json.loads(result.output)
 
         # Required envelope fields
@@ -338,7 +338,7 @@ class TestResponseEnvelope:
 
     def test_error_envelope_structure(self, runner, project):
         """Error responses should have consistent structure."""
-        result = runner.invoke(main, ["issue", "get", f"{project}-99999999"])
+        result = runner.invoke(main, ["--envelope", "issue", "get", f"{project}-99999999"])
         data = json.loads(result.output)
 
         # Required envelope fields

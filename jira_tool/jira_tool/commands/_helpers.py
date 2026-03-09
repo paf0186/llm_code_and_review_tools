@@ -20,8 +20,13 @@ pass_config = click.make_pass_decorator(JiraConfig, ensure=True)
 
 
 def output_result(envelope: dict[str, Any], pretty: bool) -> None:
-    """Output result to stdout."""
-    click.echo(format_json(envelope, pretty=pretty))
+    """Output result to stdout.
+
+    Automatically checks the click context for the --envelope flag.
+    """
+    ctx = click.get_current_context(silent=True)
+    full_envelope = ctx.obj.get("envelope", False) if ctx and ctx.obj else False
+    click.echo(format_json(envelope, pretty=pretty, full_envelope=full_envelope))
 
 
 def extract_field(data: dict[str, Any], field_path: str) -> Any:

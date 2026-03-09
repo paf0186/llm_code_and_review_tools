@@ -152,19 +152,20 @@ class TestFormatJson:
     """Tests for JSON formatting."""
 
     def test_compact_output(self):
-        """Default should be compact JSON."""
+        """Default should be compact JSON with envelope stripped."""
         envelope = {"ok": True, "data": {"key": "value"}}
         result = format_json(envelope, pretty=False)
         assert "\n" not in result
-        assert json.loads(result) == envelope
+        # Default strips envelope — only data portion
+        assert json.loads(result) == {"key": "value"}
 
     def test_pretty_output(self):
-        """Pretty should have indentation."""
+        """Pretty should have indentation, envelope stripped by default."""
         envelope = {"ok": True, "data": {"key": "value"}}
         result = format_json(envelope, pretty=True)
         assert "\n" in result
         assert "  " in result  # Indentation
-        assert json.loads(result) == envelope
+        assert json.loads(result) == {"key": "value"}
 
     def test_unicode_preserved(self):
         """Unicode should be preserved (not escaped)."""
@@ -172,3 +173,40 @@ class TestFormatJson:
         result = format_json(envelope)
         assert "日本語" in result
         assert "\\u" not in result
+
+    def test_full_envelope_compact(self):
+        """full_envelope=True should include the complete wrapper."""
+        envelope = {"ok": True, "data": {"key": "value"}}
+        result = format_json(envelope, pretty=False, full_envelope=True)
+        assert "\n" not in result
+        assert json.loads(result) == envelope
+
+    def test_full_envelope_pretty(self):
+        """full_envelope=True with pretty should indent the full wrapper."""
+        envelope = {"ok": True, "data": {"key": "value"}}
+        result = format_json(envelope, pretty=True, full_envelope=True)
+        assert "\n" in result
+        parsed = json.loads(result)
+        assert parsed == envelope
+        assert parsed["ok"] is True
+
+    def test_default_strips_success_data(self):
+        """Default mode should output just the data dict for success."""
+        envelope = {"ok": True, "data": {"issues": [1, 2]}, "meta": {"tool": "jira"}}
+        result = format_json(envelope)
+        assert json.loads(result) == {"issues": [1, 2]}
+
+    def test_default_strips_error_data(self):
+        """Default mode should output just the error dict for errors."""
+        envelope = {"ok": False, "error": {"code": "X", "message": "fail"}, "meta": {"tool": "jira"}}
+        result = format_json(envelope)
+        assert json.loads(result) == {"code": "X", "message": "fail"}
+
+    def test_full_envelope_error(self):
+        """full_envelope=True should include full wrapper for errors."""
+        envelope = {"ok": False, "error": {"code": "X", "message": "fail"}, "meta": {"tool": "jira"}}
+        result = format_json(envelope, full_envelope=True)
+        parsed = json.loads(result)
+        assert parsed["ok"] is False
+        assert parsed["error"]["code"] == "X"
+        assert parsed["meta"]["tool"] == "jira"

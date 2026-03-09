@@ -19,6 +19,9 @@ from .errors import ErrorCode
 
 TOOL_NAME = "maloo"
 
+# Module-level flag for --envelope; toggled by the group callback.
+_FULL_ENVELOPE = False
+
 # Match test session URLs or bare UUIDs
 UUID_RE = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
@@ -42,7 +45,7 @@ def _make_client() -> MalooClient:
 
 
 def _output(envelope: dict[str, Any], pretty: bool) -> None:
-    click.echo(format_json(envelope, pretty=pretty))
+    click.echo(format_json(envelope, pretty=pretty, full_envelope=_FULL_ENVELOPE))
 
 
 def _error(
@@ -54,9 +57,12 @@ def _error(
 
 
 @click.group()
-def main() -> None:
+@click.option("--envelope", is_flag=True, help="Include full response envelope (ok/data/meta wrapper)")
+@click.pass_context
+def main(ctx: click.Context, envelope: bool) -> None:
     """Maloo test results CLI - query Lustre CI test results."""
-    pass
+    global _FULL_ENVELOPE
+    _FULL_ENVELOPE = envelope
 
 
 @main.command()

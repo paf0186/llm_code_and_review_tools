@@ -311,7 +311,7 @@ class TestCLIIssueGet:
             status=200,
         )
 
-        result = runner.invoke(main, ["get","PROJ-123"])
+        result = runner.invoke(main, ["--envelope", "get","PROJ-123"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -329,7 +329,7 @@ class TestCLIIssueGet:
             status=404,
         )
 
-        result = runner.invoke(main, ["get","PROJ-999"])
+        result = runner.invoke(main, ["--envelope", "get","PROJ-999"])
 
         assert result.exit_code == 3  # NOT_FOUND
         data = json.loads(result.output)
@@ -416,7 +416,7 @@ class TestCLIIssueGetWithComments:
             status=200,
         )
 
-        result = runner.invoke(main, ["get", "PROJ-123", "--comments"])
+        result = runner.invoke(main, ["--envelope", "get", "PROJ-123", "--comments"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -434,7 +434,7 @@ class TestCLIIssueGetWithComments:
             status=200,
         )
 
-        result = runner.invoke(main, ["get", "PROJ-123"])
+        result = runner.invoke(main, ["--envelope", "get", "PROJ-123"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert "comments" not in data["data"]
@@ -515,7 +515,7 @@ class TestCLIIssueComments:
             status=200,
         )
 
-        result = runner.invoke(main, ["comments","PROJ-123"])
+        result = runner.invoke(main, ["--envelope", "comments","PROJ-123"])
 
         data = json.loads(result.output)
         assert data["data"]["pagination"]["total"] == 10
@@ -535,7 +535,7 @@ class TestCLIIssueSearch:
             status=200,
         )
 
-        result = runner.invoke(main, ["search","project = PROJ"])
+        result = runner.invoke(main, ["--envelope", "search","project = PROJ"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -560,7 +560,7 @@ class TestCLIIssueComment:
             status=201,
         )
 
-        result = runner.invoke(main, ["comment","PROJ-123", "Test comment"])
+        result = runner.invoke(main, ["--envelope", "comment","PROJ-123", "Test comment"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -584,7 +584,7 @@ class TestCLIIssueComment:
         )
 
         result = runner.invoke(
-            main, ["comment", "PROJ-123", "Internal note", "--visibility", "role:Developers"]
+            main, ["--envelope", "comment", "PROJ-123", "Internal note", "--visibility", "role:Developers"]
         )
 
         assert result.exit_code == 0
@@ -643,7 +643,7 @@ class TestCLIProjectRoles:
             status=200,
         )
 
-        result = runner.invoke(main, ["roles", "PROJ"])
+        result = runner.invoke(main, ["--envelope", "roles", "PROJ"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -674,7 +674,7 @@ class TestCLIIssueTransitions:
             status=200,
         )
 
-        result = runner.invoke(main, ["transitions","PROJ-123"])
+        result = runner.invoke(main, ["--envelope", "transitions","PROJ-123"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -699,7 +699,7 @@ class TestCLIConfigTest:
             status=200,
         )
 
-        result = runner.invoke(main, ["config", "test"])
+        result = runner.invoke(main, ["--envelope", "config", "test"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -711,7 +711,7 @@ class TestCLIConfigTest:
         monkeypatch.delenv("JIRA_SERVER", raising=False)
         monkeypatch.delenv("JIRA_TOKEN", raising=False)
 
-        result = runner.invoke(main, ["--config", "/nonexistent/path.json", "config", "test"])
+        result = runner.invoke(main, ["--envelope", "--config", "/nonexistent/path.json", "config", "test"])
 
         assert result.exit_code == 1  # GENERAL_ERROR
         data = json.loads(result.output)
@@ -724,7 +724,7 @@ class TestCLIConfigShow:
 
     def test_config_show_redacts_token(self, runner, mock_env):
         """Should redact token in output."""
-        result = runner.invoke(main, ["config", "show"])
+        result = runner.invoke(main, ["--envelope", "config", "show"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -762,7 +762,7 @@ class TestCLIIssueAttachments:
             status=200,
         )
 
-        result = runner.invoke(main, ["attachments","PROJ-123"])
+        result = runner.invoke(main, ["--envelope", "attachments","PROJ-123"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -817,7 +817,7 @@ class TestCLIIssueLinks:
             status=200,
         )
 
-        result = runner.invoke(main, ["links","PROJ-123"])
+        result = runner.invoke(main, ["--envelope", "links","PROJ-123"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -855,7 +855,7 @@ class TestCLIIssueWorklogs:
             status=200,
         )
 
-        result = runner.invoke(main, ["worklogs","PROJ-123"])
+        result = runner.invoke(main, ["--envelope", "worklogs","PROJ-123"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -883,7 +883,7 @@ class TestCLIIssueWorklogAdd:
             status=201,
         )
 
-        result = runner.invoke(main, ["worklog","PROJ-123", "1h 30m", "--comment", "Code review"])
+        result = runner.invoke(main, ["--envelope", "worklog","PROJ-123", "1h 30m", "--comment", "Code review"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -911,7 +911,7 @@ class TestCLIAttachmentGet:
             status=200,
         )
 
-        result = runner.invoke(main, ["attachment", "get", "12345"])
+        result = runner.invoke(main, ["--envelope", "attachment", "get", "12345"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -944,7 +944,7 @@ class TestCLIAttachmentContent:
             status=200,
         )
 
-        result = runner.invoke(main, ["attachment", "content", "12345"])
+        result = runner.invoke(main, ["--envelope", "attachment", "content", "12345"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -966,7 +966,7 @@ class TestCLIAttachmentContent:
             status=200,
         )
 
-        result = runner.invoke(main, ["attachment", "content", "12345"])
+        result = runner.invoke(main, ["--envelope", "attachment", "content", "12345"])
         assert result.exit_code == 4  # INVALID_INPUT
         data = json.loads(result.output)
         assert data["ok"] is False
@@ -1057,7 +1057,7 @@ class TestCLIIssueTransition:
             status=200,
         )
 
-        result = runner.invoke(main, ["transition","PROJ-123", "11"])
+        result = runner.invoke(main, ["--envelope", "transition","PROJ-123", "11"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -1085,7 +1085,7 @@ class TestCLIIssueTransition:
             status=200,
         )
 
-        result = runner.invoke(main, ["transition","PROJ-123", "21", "--comment", "Closing"])
+        result = runner.invoke(main, ["--envelope", "transition","PROJ-123", "21", "--comment", "Closing"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["data"]["comment_added"] is True
@@ -1105,7 +1105,7 @@ class TestCLIIssueCreate:
         )
 
         result = runner.invoke(
-            main, ["create","--project", "PROJ", "--type", "Bug", "--summary", "Test bug"]
+            main, ["--envelope", "create","--project", "PROJ", "--type", "Bug", "--summary", "Test bug"]
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -1125,6 +1125,7 @@ class TestCLIIssueCreate:
         result = runner.invoke(
             main,
             [
+                "--envelope",
                 "create",
                 "--project",
                 "PROJ",
@@ -1174,7 +1175,7 @@ class TestCLIIssueUpdate:
             status=200,
         )
 
-        result = runner.invoke(main, ["update","PROJ-123", "--summary", "New summary"])
+        result = runner.invoke(main, ["--envelope", "update","PROJ-123", "--summary", "New summary"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -1202,7 +1203,7 @@ class TestCLIIssueUpdate:
             status=200,
         )
 
-        result = runner.invoke(main, ["update","PROJ-123", "--assignee", "jdoe"])
+        result = runner.invoke(main, ["--envelope", "update","PROJ-123", "--assignee", "jdoe"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -1211,7 +1212,7 @@ class TestCLIIssueUpdate:
 
     def test_update_no_fields_error(self, runner, mock_env):
         """Should error when no fields specified."""
-        result = runner.invoke(main, ["update","PROJ-123"])
+        result = runner.invoke(main, ["--envelope", "update","PROJ-123"])
         assert result.exit_code == 4  # INVALID_INPUT
         data = json.loads(result.output)
         assert data["ok"] is False
@@ -1238,7 +1239,7 @@ class TestCLIIssueUpdate:
             status=200,
         )
 
-        result = runner.invoke(main, ["update","PROJ-123", "--labels", "new,labels"])
+        result = runner.invoke(main, ["--envelope", "update","PROJ-123", "--labels", "new,labels"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -1251,7 +1252,7 @@ class TestCLIConfigSample:
 
     def test_config_sample(self, runner):
         """Should output sample config."""
-        result = runner.invoke(main, ["config", "sample"])
+        result = runner.invoke(main, ["--envelope", "config", "sample"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -1275,7 +1276,7 @@ class TestCLICommentsAllFlag:
             status=200,
         )
 
-        result = runner.invoke(main, ["comments","PROJ-123", "--all"])
+        result = runner.invoke(main, ["--envelope", "comments","PROJ-123", "--all"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -1291,7 +1292,7 @@ class TestCLIConfigError:
         # Ensure no environment variables or config file
         monkeypatch.delenv("JIRA_SERVER", raising=False)
         monkeypatch.delenv("JIRA_TOKEN", raising=False)
-        result = runner.invoke(main, ["--config", "/nonexistent/no-such-file.json", "get", "PROJ-123"])
+        result = runner.invoke(main, ["--envelope", "--config", "/nonexistent/no-such-file.json", "get", "PROJ-123"])
         assert result.exit_code == 1  # GENERAL_ERROR (ConfigError)
         data = json.loads(result.output)
         assert data["ok"] is False
@@ -1323,7 +1324,7 @@ class TestCLIAttachmentContentBinary:
             status=200,
         )
 
-        result = runner.invoke(main, ["attachment", "content", "12345"])
+        result = runner.invoke(main, ["--envelope", "attachment", "content", "12345"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -1362,7 +1363,7 @@ class TestCLIIssueWatchers:
             status=200,
         )
 
-        result = runner.invoke(main, ["watchers","PROJ-123"])
+        result = runner.invoke(main, ["--envelope", "watchers","PROJ-123"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -1385,7 +1386,7 @@ class TestCLIIssueWatch:
             status=204,
         )
 
-        result = runner.invoke(main, ["watch","PROJ-123", "--user", "jdoe"])
+        result = runner.invoke(main, ["--envelope", "watch","PROJ-123", "--user", "jdoe"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -1408,7 +1409,7 @@ class TestCLIIssueWatch:
             status=204,
         )
 
-        result = runner.invoke(main, ["watch","PROJ-123"])
+        result = runner.invoke(main, ["--envelope", "watch","PROJ-123"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -1427,7 +1428,7 @@ class TestCLIIssueUnwatch:
             status=204,
         )
 
-        result = runner.invoke(main, ["unwatch","PROJ-123", "--user", "jdoe"])
+        result = runner.invoke(main, ["--envelope", "unwatch","PROJ-123", "--user", "jdoe"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -1450,7 +1451,7 @@ class TestCLIIssueUnwatch:
             status=204,
         )
 
-        result = runner.invoke(main, ["unwatch","PROJ-123"])
+        result = runner.invoke(main, ["--envelope", "unwatch","PROJ-123"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["ok"] is True
@@ -1477,7 +1478,7 @@ class TestCLIEditCommentVisibility:
         )
 
         result = runner.invoke(
-            main, ["edit-comment", "PROJ-123", "456", "Updated text", "--visibility", "role:Developers"]
+            main, ["--envelope", "edit-comment", "PROJ-123", "456", "Updated text", "--visibility", "role:Developers"]
         )
 
         assert result.exit_code == 0
@@ -1522,7 +1523,7 @@ class TestCLIAttachmentDelete:
             status=204,
         )
 
-        result = runner.invoke(main, ["attachment", "delete", "12345"])
+        result = runner.invoke(main, ["--envelope", "attachment", "delete", "12345"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -1561,7 +1562,7 @@ class TestCLIUserSearch:
             status=200,
         )
 
-        result = runner.invoke(main, ["users", "j"])
+        result = runner.invoke(main, ["--envelope", "users", "j"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -1606,7 +1607,7 @@ class TestCLIIssueTypes:
             status=200,
         )
 
-        result = runner.invoke(main, ["issue-types"])
+        result = runner.invoke(main, ["--envelope", "issue-types"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -1633,7 +1634,7 @@ class TestCLIIssueTypes:
             status=200,
         )
 
-        result = runner.invoke(main, ["issue-types", "PROJ"])
+        result = runner.invoke(main, ["--envelope", "issue-types", "PROJ"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -1653,7 +1654,7 @@ class TestCLIDeleteSubtask:
             status=204,
         )
 
-        result = runner.invoke(main, ["delete-subtask", "PROJ-124"])
+        result = runner.invoke(main, ["--envelope", "delete-subtask", "PROJ-124"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -1674,3 +1675,124 @@ class TestCLIDeleteSubtask:
         result = runner.invoke(main, ["delete-subtask", "PROJ-999"])
 
         assert result.exit_code != 0
+
+
+class TestCLIDefaultNoEnvelope:
+    """Tests for default no-envelope output mode.
+
+    By default (without --envelope), the CLI outputs just the data payload
+    for success responses and just the error dict for error responses.
+    """
+
+    @responses.activate
+    def test_success_outputs_data_directly(self, runner, mock_env):
+        """Success without --envelope should output data dict at top level."""
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123",
+            json={
+                "key": "PROJ-123",
+                "fields": {
+                    "summary": "Test issue",
+                    "status": {"name": "Open"},
+                },
+            },
+            status=200,
+        )
+
+        result = runner.invoke(main, ["get", "PROJ-123"])
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        # Data should be at the top level — no envelope wrapper
+        assert data["key"] == "PROJ-123"
+        assert data["summary"] == "Test issue"
+        # Envelope fields should NOT be present
+        assert "ok" not in data
+        assert "meta" not in data
+
+    @responses.activate
+    def test_error_outputs_error_directly(self, runner, mock_env):
+        """Error without --envelope should output error dict at top level."""
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/issue/PROJ-999",
+            json={"errorMessages": ["Issue not found"]},
+            status=404,
+        )
+
+        result = runner.invoke(main, ["get", "PROJ-999"])
+
+        assert result.exit_code == 3  # NOT_FOUND
+        data = json.loads(result.output)
+        # Error dict should be at the top level
+        assert "ISSUE_NOT_FOUND" in data["code"]
+        assert "message" in data
+        # Envelope fields should NOT be present
+        assert "ok" not in data
+        assert "meta" not in data
+        assert "error" not in data
+
+    @responses.activate
+    def test_envelope_flag_includes_wrapper(self, runner, mock_env):
+        """--envelope should include the full ok/data/meta wrapper."""
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/issue/PROJ-123",
+            json={
+                "key": "PROJ-123",
+                "fields": {
+                    "summary": "Test issue",
+                    "status": {"name": "Open"},
+                },
+            },
+            status=200,
+        )
+
+        result = runner.invoke(main, ["--envelope", "get", "PROJ-123"])
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        # Full envelope should be present
+        assert data["ok"] is True
+        assert "data" in data
+        assert "meta" in data
+        assert data["data"]["key"] == "PROJ-123"
+        assert data["meta"]["tool"] == "jira"
+        assert data["meta"]["command"] == "get"
+
+    @responses.activate
+    def test_envelope_flag_error_includes_wrapper(self, runner, mock_env):
+        """--envelope with error should include the full ok/error/meta wrapper."""
+        responses.add(
+            responses.GET,
+            "https://jira.example.com/rest/api/2/issue/PROJ-999",
+            json={"errorMessages": ["Issue not found"]},
+            status=404,
+        )
+
+        result = runner.invoke(main, ["--envelope", "get", "PROJ-999"])
+
+        assert result.exit_code == 3  # NOT_FOUND
+        data = json.loads(result.output)
+        assert data["ok"] is False
+        assert "error" in data
+        assert "meta" in data
+        assert "ISSUE_NOT_FOUND" in data["error"]["code"]
+
+    @responses.activate
+    def test_search_no_envelope(self, runner, mock_env):
+        """Search without --envelope should output data directly."""
+        responses.add(
+            responses.POST,
+            "https://jira.example.com/rest/api/2/search",
+            json={"issues": [{"key": "PROJ-1", "fields": {"summary": "A"}}], "total": 1},
+            status=200,
+        )
+
+        result = runner.invoke(main, ["search", "project = PROJ"])
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["jql"] == "project = PROJ"
+        assert "ok" not in data

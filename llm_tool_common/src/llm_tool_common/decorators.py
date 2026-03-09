@@ -49,6 +49,11 @@ def handle_errors(
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             # Extract pretty flag from kwargs or click context
             pretty = kwargs.get("pretty", False)
+            # Check for full_envelope flag from click context
+            ctx = click.get_current_context(silent=True)
+            full_env = False
+            if ctx and ctx.parent and ctx.parent.params:
+                full_env = ctx.parent.params.get("envelope", False)
             try:
                 return func(*args, **kwargs)
             except requests.HTTPError as e:
@@ -59,43 +64,44 @@ def handle_errors(
                 )
                 if status == 404:
                     msg = not_found_msg or f"Resource not found"
-                    _emit_error("NOT_FOUND", msg, tool, command, pretty)
+                    _emit_error("NOT_FOUND", msg, tool, command, pretty, full_env)
                 elif status == 401 or status == 403:
                     _emit_error(
                         "AUTH_FAILED",
                         f"Authentication failed (HTTP {status})",
-                        tool, command, pretty,
+                        tool, command, pretty, full_env,
                     )
                 else:
                     _emit_error(
                         "API_ERROR",
                         f"HTTP {status}: {e}",
-                        tool, command, pretty,
+                        tool, command, pretty, full_env,
                     )
             except requests.ConnectionError as e:
                 _emit_error(
                     "CONNECTION_ERROR",
                     f"Connection failed: {e}",
-                    tool, command, pretty,
+                    tool, command, pretty, full_env,
                 )
             except requests.Timeout as e:
                 _emit_error(
                     "TIMEOUT",
                     f"Request timed out: {e}",
-                    tool, command, pretty,
+                    tool, command, pretty, full_env,
                 )
             except Exception as exc:
                 _emit_error(
-                    "API_ERROR", str(exc), tool, command, pretty
+                    "API_ERROR", str(exc), tool, command, pretty, full_env
                 )
         return wrapper
     return decorator
 
 
 def _emit_error(
-    code: str, message: str, tool: str, command: str, pretty: bool
+    code: str, message: str, tool: str, command: str, pretty: bool,
+    full_envelope: bool = False,
 ) -> None:
     """Output a JSON error envelope and exit."""
     env = error_response_from_dict(code, message, tool, command)
-    click.echo(format_json(env, pretty=pretty))
+    click.echo(format_json(env, pretty=pretty, full_envelope=full_envelope))
     sys.exit(1)

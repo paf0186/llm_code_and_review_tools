@@ -278,7 +278,7 @@ class TestJobsCommand:
         ]
         mock_make.return_value = mock_client
 
-        result = runner.invoke(main, ["jobs"], env=_make_env())
+        result = runner.invoke(main, ["--envelope", "jobs"], env=_make_env())
         env = _parse(result)
         assert env["ok"] is True
         assert env["data"]["count"] == 1
@@ -293,7 +293,7 @@ class TestJobsCommand:
         }
         mock_make.return_value = mock_client
 
-        result = runner.invoke(main, ["jobs", "--view", "myview"], env=_make_env())
+        result = runner.invoke(main, ["--envelope", "jobs", "--view", "myview"], env=_make_env())
         env = _parse(result)
         assert env["ok"] is True
         mock_client.get_view.assert_called_with("myview")
@@ -305,7 +305,7 @@ class TestJobsCommand:
             response=MagicMock(status_code=500)
         )
 
-        result = runner.invoke(main, ["jobs"], env=_make_env())
+        result = runner.invoke(main, ["--envelope", "jobs"], env=_make_env())
         env = _parse(result)
         assert env["ok"] is False
         assert env["error"]["code"] == "API_ERROR"
@@ -327,7 +327,7 @@ class TestBuildsCommand:
         ]
         mock_make.return_value = mock_client
 
-        result = runner.invoke(main, ["builds", "foo"], env=_make_env())
+        result = runner.invoke(main, ["--envelope", "builds", "foo"], env=_make_env())
         env = _parse(result)
         assert env["ok"] is True
         assert env["data"]["job"] == "foo"
@@ -342,7 +342,7 @@ class TestBuildsCommand:
         mock_client.get_builds.side_effect = requests.HTTPError(response=resp)
         mock_make.return_value = mock_client
 
-        result = runner.invoke(main, ["builds", "nonexistent"], env=_make_env())
+        result = runner.invoke(main, ["--envelope", "builds", "nonexistent"], env=_make_env())
         env = _parse(result)
         assert env["ok"] is False
         assert env["error"]["code"] == "NOT_FOUND"
@@ -365,7 +365,7 @@ class TestBuildCommand:
         }
         mock_make.return_value = mock_client
 
-        result = runner.invoke(main, ["build", "foo", "100"], env=_make_env())
+        result = runner.invoke(main, ["--envelope", "build", "foo", "100"], env=_make_env())
         env = _parse(result)
         assert env["ok"] is True
         assert env["data"]["number"] == 100
@@ -380,7 +380,7 @@ class TestConsoleCommand:
         mock_client.get_console_text.return_value = "\n".join(lines)
         mock_make.return_value = mock_client
 
-        result = runner.invoke(main, ["console", "foo", "100"], env=_make_env())
+        result = runner.invoke(main, ["--envelope", "console", "foo", "100"], env=_make_env())
         env = _parse(result)
         assert env["ok"] is True
         assert env["data"]["total_lines"] == 300
@@ -394,7 +394,7 @@ class TestConsoleCommand:
         mock_make.return_value = mock_client
 
         result = runner.invoke(
-            main, ["console", "foo", "100", "--head", "10"], env=_make_env()
+            main, ["--envelope", "console", "foo", "100", "--head", "10"], env=_make_env()
         )
         env = _parse(result)
         assert env["ok"] is True
@@ -409,7 +409,7 @@ class TestConsoleCommand:
         mock_make.return_value = mock_client
 
         result = runner.invoke(
-            main, ["console", "foo", "100", "--grep", "error"], env=_make_env()
+            main, ["--envelope", "console", "foo", "100", "--grep", "error"], env=_make_env()
         )
         env = _parse(result)
         assert env["ok"] is True
@@ -423,7 +423,7 @@ class TestConsoleCommand:
         mock_make.return_value = mock_client
 
         result = runner.invoke(
-            main, ["console", "foo", "100", "--grep", "[invalid"],
+            main, ["--envelope", "console", "foo", "100", "--grep", "[invalid"],
             env=_make_env(),
         )
         env = _parse(result)
@@ -451,7 +451,7 @@ class TestReviewCommand:
         ]
         mock_make.return_value = mock_client
 
-        result = runner.invoke(main, ["review", "54225"], env=_make_env())
+        result = runner.invoke(main, ["--envelope", "review", "54225"], env=_make_env())
         env = _parse(result)
         assert env["ok"] is True
         assert env["data"]["change_number"] == 54225
@@ -463,7 +463,7 @@ class TestReviewCommand:
         mock_client.find_review_builds.return_value = []
         mock_make.return_value = mock_client
 
-        result = runner.invoke(main, ["review", "99999"], env=_make_env())
+        result = runner.invoke(main, ["--envelope", "review", "99999"], env=_make_env())
         env = _parse(result)
         assert env["ok"] is True
         assert env["data"]["count"] == 0
@@ -482,7 +482,7 @@ class TestAbortCommand:
         mock_make.return_value = mock_client
 
         result = runner.invoke(
-            main, ["abort", "foo", "100"], env=_make_env()
+            main, ["--envelope", "abort", "foo", "100"], env=_make_env()
         )
         env = _parse(result)
         assert env["ok"] is True
@@ -499,7 +499,7 @@ class TestAbortCommand:
         mock_make.return_value = mock_client
 
         result = runner.invoke(
-            main, ["abort", "foo", "100"], env=_make_env()
+            main, ["--envelope", "abort", "foo", "100"], env=_make_env()
         )
         env = _parse(result)
         assert env["ok"] is True
@@ -516,7 +516,7 @@ class TestRetriggerCommand:
         mock_make.return_value = mock_client
 
         result = runner.invoke(
-            main, ["retrigger", "foo", "100"], env=_make_env()
+            main, ["--envelope", "retrigger", "foo", "100"], env=_make_env()
         )
         env = _parse(result)
         assert env["ok"] is True
@@ -534,11 +534,74 @@ class TestRetriggerCommand:
         mock_make.return_value = mock_client
 
         result = runner.invoke(
-            main, ["retrigger", "foo", "100"], env=_make_env()
+            main, ["--envelope", "retrigger", "foo", "100"], env=_make_env()
         )
         env = _parse(result)
         assert env["ok"] is False
         assert env["error"]["code"] == "NOT_FOUND"
+
+
+class TestNoEnvelopeDefault:
+    """Verify that without --envelope, output is stripped to just data/error."""
+
+    @patch("jenkins_tool.cli._make_client")
+    def test_success_outputs_data_only(self, mock_make, runner):
+        """Without --envelope, success output should be the data dict directly."""
+        mock_client = MagicMock()
+        mock_client.get_jobs.return_value = [
+            {
+                "name": "lustre-master",
+                "color": "blue",
+                "url": "https://build.example.com/job/lustre-master/",
+                "healthReport": [],
+            }
+        ]
+        mock_make.return_value = mock_client
+
+        result = runner.invoke(main, ["jobs"], env=_make_env())
+        out = _parse(result)
+        # Should NOT have envelope keys
+        assert "ok" not in out
+        assert "meta" not in out
+        # Should have the data payload directly
+        assert out["count"] == 1
+        assert out["jobs"][0]["name"] == "lustre-master"
+
+    @patch("jenkins_tool.cli._make_client")
+    def test_error_outputs_error_only(self, mock_make, runner):
+        """Without --envelope, error output should be the error dict directly."""
+        import requests
+        mock_make.side_effect = requests.HTTPError(
+            response=MagicMock(status_code=500)
+        )
+
+        result = runner.invoke(main, ["jobs"], env=_make_env())
+        out = _parse(result)
+        # Should NOT have envelope keys
+        assert "ok" not in out
+        assert "meta" not in out
+        # Should have the error payload directly
+        assert out["code"] == "API_ERROR"
+
+    @patch("jenkins_tool.cli._make_client")
+    def test_envelope_flag_preserves_wrapper(self, mock_make, runner):
+        """With --envelope, output should have the full ok/data/meta wrapper."""
+        mock_client = MagicMock()
+        mock_client.get_jobs.return_value = [
+            {
+                "name": "lustre-master",
+                "color": "blue",
+                "url": "https://build.example.com/job/lustre-master/",
+                "healthReport": [],
+            }
+        ]
+        mock_make.return_value = mock_client
+
+        result = runner.invoke(main, ["--envelope", "jobs"], env=_make_env())
+        out = _parse(result)
+        assert out["ok"] is True
+        assert "data" in out
+        assert "meta" in out
 
 
 class TestConfigValidation:

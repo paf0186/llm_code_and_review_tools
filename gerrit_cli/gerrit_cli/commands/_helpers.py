@@ -128,8 +128,13 @@ def filter_threads_by_fields(
 
 
 def output_result(envelope: dict[str, Any], pretty: bool) -> None:
-    """Output result to stdout."""
-    print(format_json(envelope, pretty=pretty))
+    """Output result to stdout.
+
+    Checks for --envelope flag via the ``_full_envelope`` module-level
+    flag (set by the CLI entry point).
+    """
+    full_env = _cli().FULL_ENVELOPE if hasattr(_cli(), 'FULL_ENVELOPE') else False
+    print(format_json(envelope, pretty=pretty, full_envelope=full_env))
 
 
 def output_success(

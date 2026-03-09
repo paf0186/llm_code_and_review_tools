@@ -36,7 +36,7 @@ from .commands._helpers import (  # noqa: F401 – re-exported
 
 
 # ── Hoistable-flag support ──────────────────────────────────────────
-_HOISTABLE_FLAGS = {"--pretty", "--debug"}
+_HOISTABLE_FLAGS = {"--pretty", "--debug", "--envelope"}
 
 
 class JsonErrorGroup(click.Group):
@@ -47,8 +47,8 @@ class JsonErrorGroup(click.Group):
     those errors and outputs a structured JSON error envelope to stdout
     instead, maintaining the tool's JSON-only contract.
 
-    Additionally, --pretty and --debug are extracted from anywhere in
-    the argument list so they work in any position.
+    Additionally, --pretty, --debug, and --envelope are extracted from
+    anywhere in the argument list so they work in any position.
     """
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
@@ -74,7 +74,8 @@ class JsonErrorGroup(click.Group):
                 command="cli",
                 details={"hint": e.format_message()} if hasattr(e, "format_message") else None,
             )
-            click.echo(format_json(envelope, pretty=pretty))
+            full_env = ctx.params.get("envelope", False)
+            click.echo(format_json(envelope, pretty=pretty, full_envelope=full_env))
             ctx.exit(ExitCode.INVALID_INPUT)
 
 
@@ -85,15 +86,19 @@ class JsonErrorGroup(click.Group):
 @click.option("--token", envvar="JIRA_TOKEN", help="JIRA API token")
 @click.option("--config", "config_path", type=click.Path(), help="Config file path")
 @click.option("--pretty", is_flag=True, help="Pretty-print JSON output")
+@click.option("--envelope", is_flag=True, help="Include full response envelope (ok/data/meta wrapper)")
 @click.option("--debug", is_flag=True, help="Enable debug output to stderr")
 @click.pass_context
 def main(
-    ctx: click.Context, server: str | None, token: str | None, config_path: str | None, pretty: bool, debug: bool
+    ctx: click.Context, server: str | None, token: str | None, config_path: str | None,
+    pretty: bool, envelope: bool, debug: bool,
 ) -> None:
     """
     JIRA CLI tool for LLM agents.
 
-    All commands output JSON to stdout. Use --pretty for human-readable output.
+    All commands output JSON data payload to stdout.
+    Use --envelope to include the full ok/data/meta wrapper.
+    Use --pretty for human-readable indented output.
     Run 'jira describe' for machine-readable API documentation.
 
     Configuration priority:
@@ -103,6 +108,7 @@ def main(
     """
     ctx.ensure_object(dict)
     ctx.obj["pretty"] = pretty
+    ctx.obj["envelope"] = envelope
     ctx.obj["debug"] = debug
     ctx.obj["server_override"] = server
     ctx.obj["token_override"] = token

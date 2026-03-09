@@ -144,19 +144,53 @@ class TestErrorResponseFromDict:
 class TestFormatJson:
     """Tests for JSON formatting."""
 
-    def test_compact_output(self):
-        """Default should be compact JSON."""
+    def test_compact_output_strips_envelope(self):
+        """Default should output just the data payload, no envelope."""
         envelope = {"ok": True, "data": {"key": "value"}}
         result = format_json(envelope, pretty=False)
         assert "\n" not in result
+        assert json.loads(result) == {"key": "value"}
+
+    def test_full_envelope_output(self):
+        """full_envelope=True should preserve the complete envelope."""
+        envelope = {"ok": True, "data": {"key": "value"}, "meta": {"tool": "t"}}
+        result = format_json(envelope, pretty=False, full_envelope=True)
         assert json.loads(result) == envelope
 
-    def test_pretty_output(self):
-        """Pretty should have indentation."""
+    def test_pretty_output_strips_envelope(self):
+        """Pretty should have indentation and strip envelope."""
         envelope = {"ok": True, "data": {"key": "value"}}
         result = format_json(envelope, pretty=True)
         assert "\n" in result
         assert "  " in result  # Indentation
+        assert json.loads(result) == {"key": "value"}
+
+    def test_pretty_full_envelope(self):
+        """Pretty with full_envelope should preserve envelope."""
+        envelope = {"ok": True, "data": {"key": "value"}}
+        result = format_json(envelope, pretty=True, full_envelope=True)
+        assert "\n" in result
+        assert json.loads(result) == envelope
+
+    def test_error_strips_to_error_dict(self):
+        """Error envelopes should output just the error dict by default."""
+        envelope = {
+            "ok": False,
+            "error": {"code": "NOT_FOUND", "message": "gone"},
+            "meta": {"tool": "t"},
+        }
+        result = format_json(envelope)
+        parsed = json.loads(result)
+        assert parsed == {"code": "NOT_FOUND", "message": "gone"}
+
+    def test_error_full_envelope(self):
+        """Error with full_envelope should preserve wrapper."""
+        envelope = {
+            "ok": False,
+            "error": {"code": "NOT_FOUND", "message": "gone"},
+            "meta": {"tool": "t"},
+        }
+        result = format_json(envelope, full_envelope=True)
         assert json.loads(result) == envelope
 
     def test_unicode_preserved(self):
@@ -165,4 +199,21 @@ class TestFormatJson:
         result = format_json(envelope)
         assert "日本語" in result
         assert "\\u" not in result
+
+    def test_fallback_no_data_key(self):
+        """Envelopes without data or error keys should output as-is."""
+        envelope = {"something": "else"}
+        result = format_json(envelope)
+        assert json.loads(result) == envelope
+
+    def test_success_with_next_actions_stripped(self):
+        """next_actions should be stripped in default mode."""
+        envelope = {
+            "ok": True,
+            "data": {"key": "val"},
+            "next_actions": ["foo"],
+            "meta": {"tool": "t"},
+        }
+        result = format_json(envelope)
+        assert json.loads(result) == {"key": "val"}
 
