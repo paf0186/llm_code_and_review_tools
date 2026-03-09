@@ -126,6 +126,7 @@ cmd_interactive = _cmd_review.cmd_interactive
 
 cmd_maloo = _cmd_ci.cmd_maloo
 cmd_info = _cmd_ci.cmd_info
+cmd_series_info = _cmd_ci.cmd_series_info
 cmd_watch = _cmd_ci.cmd_watch
 cmd_diff = _cmd_ci.cmd_diff
 
@@ -226,6 +227,7 @@ def main():
         'checkout': cmd_checkout,
         'maloo': cmd_maloo,
         'info': cmd_info,
+        'series_info': cmd_series_info,
         'search': cmd_search,
         'watch': cmd_watch,
         'set_topic': cmd_set_topic,

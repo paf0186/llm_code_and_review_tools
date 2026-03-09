@@ -177,6 +177,170 @@ def cmd_maloo(args):
         sys.exit(output_error(ErrorCode.API_ERROR, str(e), command, pretty))
 
 
+def _info_for_change(client, change_number, show_bots=False):
+    """Get info data for a single change. Returns a dict.
+
+    Extracts patchset history, reviewers, CI status, and Jenkins build
+    for the given change number. Used by both cmd_info and cmd_series_info.
+    """
+    change = client.get_change_detail(change_number)
+
+    # Build patchset info with upload dates and age
+    revisions = change.get("revisions", {})
+    patchsets = []
+    for rev_id, rev in revisions.items():
+        created = rev.get("created", "")
+        ps_entry = {
+            "number": rev.get("_number"),
+            "created": created,
+            "uploader": rev.get("uploader", {}).get("name", ""),
+        }
+        age = _patchset_age(created)
+        if age:
+            ps_entry["age"] = age
+        patchsets.append(ps_entry)
+    patchsets.sort(key=lambda x: x["number"])
+
+    current_revision = change.get("current_revision", "")
+    current_patchset = revisions.get(current_revision, {}).get("_number", 0)
+
+    # Get reviewers with approvals, filtering bots by default
+    reviewers_raw = client.get_reviewers(change_number)
+    reviewers = []
+    for r in reviewers_raw:
+        name = r.get("name", "")
+        approvals = r.get("approvals", {})
+        if not approvals:
+            continue
+        if not show_bots and name in BOT_REVIEWER_NAMES:
+            continue
+        reviewers.append({
+            "name": name,
+            "approvals": approvals,
+        })
+
+    # Get CI status via maloo message parsing
+    msgs = client.get_messages(change_number)
+
+    enforced_results = {}
+    optional_failed = []
+    retests_pending = []
+
+    for m in msgs:
+        author = m.get('author', {}).get('name', '')
+        ps = m.get('_revision_number', 0)
+        text = m.get('message', '')
+
+        if author == 'Maloo' and ps == current_patchset:
+            for kind in ('enforced', 'optional'):
+                for status in ('Failed', 'Passed'):
+                    marker = f'{status} {kind} test '
+                    if marker not in text:
+                        continue
+                    rest = text.split(marker, 1)[1]
+                    name_plat = rest.split(' uploaded')[0].strip()
+                    parts = name_plat.split(' on ', 1)
+                    test_name = parts[0].strip()
+                    platform = parts[1].strip() if len(parts) > 1 else ''
+                    url = ''
+                    if 'https://testing.' in text:
+                        after_marker = text[text.index('https://testing.'):]
+                        url = after_marker.split()[0]
+
+                    if kind == 'enforced':
+                        if test_name not in enforced_results:
+                            enforced_results[test_name] = {'pass': 0, 'fail': 0}
+                        enforced_results[test_name]['pass' if status == 'Passed' else 'fail'] += 1
+                    elif status == 'Failed':
+                        optional_failed.append(test_name)
+
+        # Track retests
+        if author == 'Autotest' and ps == current_patchset:
+            if 'retest' in text.lower():
+                retests_pending.append({
+                    'date': m.get('date', ''),
+                    'message': text[:120],
+                })
+
+    # Parse Jenkins build status from messages
+    jenkins_build = None
+    for m in reversed(msgs):
+        author = m.get('author', {}).get('name', '')
+        ps = m.get('_revision_number', 0)
+        text = m.get('message', '')
+
+        if author in ('jenkins', 'Jenkins') and ps == current_patchset:
+            build_url = ''
+            build_number = ''
+            if 'build.whamcloud.com' in text:
+                for word in text.split():
+                    if 'build.whamcloud.com' in word:
+                        build_url = word.rstrip(':')
+                        # Extract build number from URL
+                        parts = build_url.rstrip('/').split('/')
+                        if parts:
+                            build_number = parts[-1]
+                        break
+            if 'Build Successful' in text or 'Verified+1' in text:
+                jenkins_build = {
+                    'status': 'SUCCESS',
+                    'build_url': build_url,
+                    'build_number': build_number,
+                }
+                break
+            elif 'Build Failed' in text or 'Verified-1' in text:
+                reason = 'FAILURE'
+                if 'ABORTED' in text:
+                    reason = 'ABORTED'
+                jenkins_build = {
+                    'status': reason,
+                    'build_url': build_url,
+                    'build_number': build_number,
+                }
+                break
+            elif 'Build Started' in text:
+                jenkins_build = {
+                    'status': 'BUILDING',
+                    'build_url': build_url,
+                    'build_number': build_number,
+                }
+                break
+
+    # Summarize CI
+    enforced_pass = sum(r['pass'] for r in enforced_results.values())
+    enforced_fail = sum(r['fail'] for r in enforced_results.values())
+
+    ci_status = "no results"
+    if enforced_pass or enforced_fail:
+        if enforced_fail == 0:
+            ci_status = "all passing"
+        elif enforced_pass == 0:
+            ci_status = "failing"
+        else:
+            ci_status = "mixed"
+
+    return {
+        "change_number": change_number,
+        "project": change.get("project", ""),
+        "branch": change.get("branch", ""),
+        "subject": change.get("subject", ""),
+        "status": change.get("status", ""),
+        "owner": change.get("owner", {}).get("name", ""),
+        "current_patchset": current_patchset,
+        "current_revision": current_revision,
+        "patchsets": patchsets,
+        "reviewers": reviewers,
+        "ci": {
+            "status": ci_status,
+            "enforced_pass": enforced_pass,
+            "enforced_fail": enforced_fail,
+            "optional_fail": len(optional_failed),
+            "retests_pending": len(retests_pending),
+        },
+        "jenkins_build": jenkins_build,
+    }
+
+
 def cmd_info(args):
     """Show quick overview of a change: patchsets, reviews, CI status."""
     cli = _cli()
@@ -187,163 +351,65 @@ def cmd_info(args):
     try:
         base_url, change_number = cli.GerritCommentsClient.parse_gerrit_url(args.url)
         client = cli.GerritCommentsClient()
+        data = _info_for_change(client, change_number, show_bots)
+        output_success(data, command, pretty)
+        sys.exit(ExitCode.SUCCESS)
 
-        # Get change detail (includes ALL_REVISIONS)
-        change = client.get_change_detail(change_number)
+    except ValueError as e:
+        sys.exit(output_error(ErrorCode.INVALID_INPUT, str(e), command, pretty))
+    except Exception as e:
+        sys.exit(output_error(ErrorCode.API_ERROR, str(e), command, pretty))
 
-        # Build patchset info with upload dates and age
-        revisions = change.get("revisions", {})
-        patchsets = []
-        for rev_id, rev in revisions.items():
-            created = rev.get("created", "")
-            ps_entry = {
-                "number": rev.get("_number"),
-                "created": created,
-                "uploader": rev.get("uploader", {}).get("name", ""),
-            }
-            age = _patchset_age(created)
-            if age:
-                ps_entry["age"] = age
-            patchsets.append(ps_entry)
-        patchsets.sort(key=lambda x: x["number"])
 
-        current_revision = change.get("current_revision", "")
-        current_patchset = revisions.get(current_revision, {}).get("_number", 0)
+def cmd_series_info(args):
+    """Show info for all patches in a series: patchsets, reviews, CI status."""
+    cli = _cli()
+    command = "series-info"
+    pretty = getattr(args, 'pretty', False)
+    show_bots = getattr(args, 'show_bots', False)
 
-        # Get reviewers with approvals, filtering bots by default
-        reviewers_raw = client.get_reviewers(change_number)
-        reviewers = []
-        for r in reviewers_raw:
-            name = r.get("name", "")
-            approvals = r.get("approvals", {})
-            if not approvals:
-                continue
-            if not show_bots and name in BOT_REVIEWER_NAMES:
-                continue
-            reviewers.append({
-                "name": name,
-                "approvals": approvals,
-            })
+    try:
+        from ..series import SeriesFinder
 
-        # Get CI status via maloo message parsing (reuse cmd_maloo logic)
-        msgs = client.get_messages(change_number)
+        base_url, change_number = cli.GerritCommentsClient.parse_gerrit_url(args.url)
+        client = cli.GerritCommentsClient()
 
-        enforced_results = {}
-        optional_failed = []
-        retests_pending = []
+        # Discover the series
+        finder = SeriesFinder(client=client)
+        series = finder.find_series(args.url)
 
-        for m in msgs:
-            author = m.get('author', {}).get('name', '')
-            ps = m.get('_revision_number', 0)
-            text = m.get('message', '')
+        if not series or not series.patches:
+            output_success({
+                "series": {"total_patches": 0, "patches": []},
+                "patches": [],
+            }, command, pretty)
+            sys.exit(ExitCode.SUCCESS)
 
-            if author == 'Maloo' and ps == current_patchset:
-                for kind in ('enforced', 'optional'):
-                    for status in ('Failed', 'Passed'):
-                        marker = f'{status} {kind} test '
-                        if marker not in text:
-                            continue
-                        rest = text.split(marker, 1)[1]
-                        name_plat = rest.split(' uploaded')[0].strip()
-                        parts = name_plat.split(' on ', 1)
-                        test_name = parts[0].strip()
-                        platform = parts[1].strip() if len(parts) > 1 else ''
-                        url = ''
-                        if 'https://testing.' in text:
-                            after_marker = text[text.index('https://testing.'):]
-                            url = after_marker.split()[0]
+        # Print progress to stderr
+        total = len(series.patches)
+        print(f"Fetching info for {total} patches...",
+              file=sys.stderr, flush=True)
 
-                        if kind == 'enforced':
-                            if test_name not in enforced_results:
-                                enforced_results[test_name] = {'pass': 0, 'fail': 0}
-                            enforced_results[test_name]['pass' if status == 'Passed' else 'fail'] += 1
-                        elif status == 'Failed':
-                            optional_failed.append(test_name)
+        # Get info for each patch in the series
+        patches_info = []
+        for i, patch in enumerate(series.patches, 1):
+            print(f"\r  ({i}/{total}) {patch.change_number}...",
+                  end="", file=sys.stderr, flush=True)
+            try:
+                info = _info_for_change(client, patch.change_number, show_bots)
+                patches_info.append(info)
+            except Exception as e:
+                patches_info.append({
+                    "change_number": patch.change_number,
+                    "subject": patch.subject,
+                    "error": str(e),
+                })
 
-            # Track retests
-            if author == 'Autotest' and ps == current_patchset:
-                if 'retest' in text.lower():
-                    retests_pending.append({
-                        'date': m.get('date', ''),
-                        'message': text[:120],
-                    })
-
-        # Parse Jenkins build status from messages
-        jenkins_build = None
-        for m in reversed(msgs):
-            author = m.get('author', {}).get('name', '')
-            ps = m.get('_revision_number', 0)
-            text = m.get('message', '')
-
-            if author in ('jenkins', 'Jenkins') and ps == current_patchset:
-                build_url = ''
-                build_number = ''
-                if 'build.whamcloud.com' in text:
-                    for word in text.split():
-                        if 'build.whamcloud.com' in word:
-                            build_url = word.rstrip(':')
-                            # Extract build number from URL
-                            parts = build_url.rstrip('/').split('/')
-                            if parts:
-                                build_number = parts[-1]
-                            break
-                if 'Build Successful' in text or 'Verified+1' in text:
-                    jenkins_build = {
-                        'status': 'SUCCESS',
-                        'build_url': build_url,
-                        'build_number': build_number,
-                    }
-                    break
-                elif 'Build Failed' in text or 'Verified-1' in text:
-                    reason = 'FAILURE'
-                    if 'ABORTED' in text:
-                        reason = 'ABORTED'
-                    jenkins_build = {
-                        'status': reason,
-                        'build_url': build_url,
-                        'build_number': build_number,
-                    }
-                    break
-                elif 'Build Started' in text:
-                    jenkins_build = {
-                        'status': 'BUILDING',
-                        'build_url': build_url,
-                        'build_number': build_number,
-                    }
-                    break
-
-        # Summarize CI
-        enforced_pass = sum(r['pass'] for r in enforced_results.values())
-        enforced_fail = sum(r['fail'] for r in enforced_results.values())
-
-        ci_status = "no results"
-        if enforced_pass or enforced_fail:
-            if enforced_fail == 0:
-                ci_status = "all passing"
-            elif enforced_pass == 0:
-                ci_status = "failing"
-            else:
-                ci_status = "mixed"
+        print("", file=sys.stderr)  # newline after progress
 
         data = {
-            "change_number": change_number,
-            "project": change.get("project", ""),
-            "branch": change.get("branch", ""),
-            "subject": change.get("subject", ""),
-            "status": change.get("status", ""),
-            "owner": change.get("owner", {}).get("name", ""),
-            "current_patchset": current_patchset,
-            "current_revision": current_revision,
-            "patchsets": patchsets,
-            "reviewers": reviewers,
-            "ci": {
-                "status": ci_status,
-                "enforced_pass": enforced_pass,
-                "enforced_fail": enforced_fail,
-                "optional_fail": len(optional_failed),
-                "retests_pending": len(retests_pending),
-            },
-            "jenkins_build": jenkins_build,
+            "series": series.to_dict(),
+            "patches": patches_info,
         }
 
         output_success(data, command, pretty)

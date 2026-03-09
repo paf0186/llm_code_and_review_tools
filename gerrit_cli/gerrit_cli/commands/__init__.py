@@ -40,6 +40,7 @@ from .review import (
 from .ci import (
     cmd_maloo,
     cmd_info,
+    cmd_series_info,
     cmd_watch,
     cmd_diff,
 )
@@ -94,6 +95,7 @@ __all__ = [
     "cmd_interactive",
     "cmd_maloo",
     "cmd_info",
+    "cmd_series_info",
     "cmd_watch",
     "cmd_diff",
     "cmd_abandon",

@@ -713,6 +713,30 @@ def add_info_parser(subparsers):
     return parser
 
 
+def add_series_info_parser(subparsers):
+    """Add the 'series-info' subcommand parser."""
+    parser = subparsers.add_parser(
+        "series-info",
+        help="Show info for all patches in a series (patchsets, reviews, CI)",
+        description="Discover a series from any patch URL and return full info "
+                    "(patchset history, reviewers, CI status, Jenkins build) "
+                    "for every patch in the series. Combines series discovery "
+                    "with per-patch info in a single call.",
+    )
+    parser.add_argument("url", help="Gerrit change URL or number (any patch in the series)")
+    parser.add_argument(
+        "--show-bots",
+        action="store_true",
+        help="Include bot accounts in reviewer list (filtered by default)",
+    )
+    parser.add_argument(
+        "--pretty", "-p",
+        action="store_true",
+        help="Pretty-print JSON output",
+    )
+    return parser
+
+
 def add_watch_parser(subparsers):
     """Add the 'watch' subcommand parser."""
     parser = subparsers.add_parser(
@@ -1145,6 +1169,8 @@ def setup_parsers(subparsers, handlers):
 
     # Change overview
     add_info_parser(subparsers).set_defaults(func=handlers['info'])
+    add_series_info_parser(subparsers).set_defaults(
+        func=handlers['series_info'])
 
     # Search
     add_search_parser(subparsers).set_defaults(func=handlers['search'])
