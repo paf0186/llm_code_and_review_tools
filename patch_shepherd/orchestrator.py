@@ -178,7 +178,7 @@ def propagate_series_blocks(patches, results):
 
         log(f"  Patch #{blocked_i} has negative CR — checking series...")
         related = run(["gerrit", "related", blocked_url], timeout=30)
-        series = related.get("data", {}).get("series", [])
+        series = related.get("series", [])
         if not series:
             continue
 
