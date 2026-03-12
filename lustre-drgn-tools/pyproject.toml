@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "lustre-drgn-tools"
+version = "0.1.1"
+description = "Drgn-based Lustre vmcore analysis tools"
+requires-python = ">=3.8"
+dependencies = ["drgn"]
+
+[project.scripts]
+lustre-drgn = "lustre_drgn_tools.lustre_drgn:main"
+
+[tool.setuptools]
+packages = ["lustre_drgn_tools"]
+
+[tool.setuptools.package-dir]
+lustre_drgn_tools = "."
