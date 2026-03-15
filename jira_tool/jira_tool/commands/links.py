@@ -14,6 +14,38 @@ from ._helpers import (
 )
 
 
+def _resolve_link_type(client, user_type: str) -> str:
+    """Fuzzy-match a user-provided link type against available JIRA link types.
+
+    Matches against name, inward, and outward descriptions (case-insensitive).
+    Returns the canonical JIRA link type name.
+    """
+    raw = client.get_link_types()
+    link_types = raw.get("issueLinkTypes", [])
+    user_lower = user_type.lower()
+
+    # Exact name match first
+    for lt in link_types:
+        if lt["name"].lower() == user_lower:
+            return lt["name"]
+
+    # Match against inward/outward descriptions and common aliases
+    for lt in link_types:
+        candidates = [
+            lt.get("inward", "").lower(),
+            lt.get("outward", "").lower(),
+        ]
+        if user_lower in candidates:
+            return lt["name"]
+        # Substring match (e.g., "blocks" matches "is blocking")
+        for c in candidates:
+            if user_lower in c or c in user_lower:
+                return lt["name"]
+
+    # No match — return as-is and let JIRA reject it with a clear error
+    return user_type
+
+
 def register(main):
     """Register link commands on *main*."""
 
@@ -21,7 +53,8 @@ def register(main):
     @click.argument("key")
     @click.argument("target_key")
     @click.option("--type", "link_type", default="Related",
-                  help="Link type name (e.g., Related, Blocks, Duplicate). Default: Related")
+                  help="Link type name (e.g., Related, Blocker, Duplicate). "
+                  "Also accepts common aliases: Blocks -> Blocker. Default: Related")
     @click.pass_context
     def issue_link_create(ctx: click.Context, key: str, target_key: str, link_type: str) -> None:
         """
@@ -29,6 +62,9 @@ def register(main):
 
         KEY is the source issue key (e.g., PROJ-123) or a JIRA URL.
         TARGET_KEY is the destination issue key.
+
+        The link type is fuzzy-matched against available types by name,
+        inward, or outward description (e.g., "Blocks" matches "Blocker").
         """
         command = "link"
         pretty = ctx.obj.get("pretty", False)
@@ -38,12 +74,15 @@ def register(main):
             key = extract_issue_key(key)
             target_key = extract_issue_key(target_key)
 
-            client.create_link(key, target_key, link_type)
+            # Fuzzy-match link type against available types
+            resolved_type = _resolve_link_type(client, link_type)
+
+            client.create_link(key, target_key, resolved_type)
 
             link_data = {
                 "source_key": key,
                 "target_key": target_key,
-                "link_type": link_type,
+                "link_type": resolved_type,
             }
 
             envelope = success_response(link_data, command)
@@ -56,13 +95,19 @@ def register(main):
             sys.exit(handle_error(e, command, pretty))
 
     @main.command("unlink")
-    @click.argument("link_id")
+    @click.argument("key")
+    @click.argument("target_key", required=False, default=None)
+    @click.option("--type", "link_type", default=None,
+                  help="Only remove links of this type (fuzzy-matched)")
     @click.pass_context
-    def issue_unlink(ctx: click.Context, link_id: str) -> None:
+    def issue_unlink(ctx: click.Context, key: str, target_key: str | None, link_type: str | None) -> None:
         """
         Remove a link between two issues.
 
-        LINK_ID is the numeric link ID (from 'jira links' output).
+        Usage:
+          jira unlink LINK_ID              Remove link by numeric ID
+          jira unlink KEY TARGET_KEY       Remove link between two issues
+          jira unlink KEY TARGET_KEY --type Blocker   Remove specific link type
         """
         command = "unlink"
         pretty = ctx.obj.get("pretty", False)
@@ -70,12 +115,55 @@ def register(main):
         try:
             client = get_client(ctx)
 
-            client.delete_link(link_id)
+            if target_key is None:
+                # Single argument: treat as link ID
+                client.delete_link(key)
+                data = {
+                    "link_id": key,
+                    "deleted": True,
+                }
+            else:
+                # Two arguments: find and delete link between issues
+                source = extract_issue_key(key)
+                target = extract_issue_key(target_key)
 
-            data = {
-                "link_id": link_id,
-                "deleted": True,
-            }
+                raw_issue = client.get_issue(source, fields=["issuelinks"])
+                raw_links = raw_issue.get("fields", {}).get("issuelinks", [])
+
+                deleted = []
+                for link in raw_links:
+                    linked_key = None
+                    if "inwardIssue" in link:
+                        linked_key = link["inwardIssue"].get("key")
+                    elif "outwardIssue" in link:
+                        linked_key = link["outwardIssue"].get("key")
+
+                    if linked_key != target:
+                        continue
+
+                    if link_type:
+                        resolved = _resolve_link_type(client, link_type)
+                        if link["type"]["name"] != resolved:
+                            continue
+
+                    client.delete_link(str(link["id"]))
+                    deleted.append({
+                        "link_id": str(link["id"]),
+                        "link_type": link["type"]["name"],
+                    })
+
+                if not deleted:
+                    raise JiraToolError(
+                        f"No link found between {source} and {target}"
+                        + (f" of type '{link_type}'" if link_type else ""),
+                        http_status=404,
+                    )
+
+                data = {
+                    "source_key": source,
+                    "target_key": target,
+                    "deleted": deleted,
+                }
 
             envelope = success_response(data, command)
             output_result(envelope, pretty)
