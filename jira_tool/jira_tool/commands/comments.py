@@ -78,9 +78,11 @@ def register(main):
         except ConfigError as e:
             sys.exit(handle_error(e, command, pretty))
 
-    @main.command("comment")
+    @main.command("comment", context_settings={"ignore_unknown_options": True})
     @click.argument("key")
-    @click.argument("body")
+    @click.argument("body", default=None, required=False)
+    @click.option("--body", "body_opt", default=None, help="Comment text (alternative to positional BODY)")
+    @click.option("--update", "comment_id", default=None, help="Edit existing comment by ID instead of adding new")
     @click.option(
         "--visibility",
         default=None,
@@ -88,14 +90,21 @@ def register(main):
         "Use 'jira roles <PROJECT_KEY>' to list available roles.",
     )
     @click.pass_context
-    def issue_comment_add(ctx: click.Context, key: str, body: str, visibility: str | None) -> None:
+    def issue_comment_add(ctx: click.Context, key: str, body: str | None, body_opt: str | None,
+                          comment_id: str | None, visibility: str | None) -> None:
         """
-        Add a comment to an issue.
+        Add or edit a comment on an issue.
 
         KEY is the issue key (e.g., PROJ-123) or a JIRA URL.
-        BODY is the comment text.
+        BODY is the comment text (positional or via --body).
+
+        Use --body when the comment text starts with a dash.
+        Use --update COMMENT_ID to edit an existing comment.
         """
-        command = "comment"
+        body = body_opt or body
+        if not body:
+            raise click.UsageError("Missing comment text. Provide BODY as argument or via --body.")
+        command = "edit-comment" if comment_id else "comment"
         pretty = ctx.obj.get("pretty", False)
 
         try:
@@ -103,7 +112,10 @@ def register(main):
             key = extract_issue_key(key)
 
             visibility_dict = _parse_visibility(visibility) if visibility else None
-            raw_comment = client.add_comment(key, body, visibility=visibility_dict)
+            if comment_id:
+                raw_comment = client.edit_comment(key, comment_id, body, visibility=visibility_dict)
+            else:
+                raw_comment = client.add_comment(key, body, visibility=visibility_dict)
 
             # Normalize response
             comment_data = {
