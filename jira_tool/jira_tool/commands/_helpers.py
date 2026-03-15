@@ -194,7 +194,17 @@ def _normalize_issue(raw_issue: dict[str, Any]) -> dict[str, Any]:
     resolution = fields.get("resolution", {})
     resolution_name = resolution.get("name") if resolution else None
 
-    return {
+    # Extract parent (for sub-tasks / technical tasks)
+    parent = fields.get("parent")
+    parent_key = parent.get("key") if parent else None
+
+    # Extract epic link (customfield_10092)
+    epic_link = fields.get("customfield_10092")
+
+    # Extract subtask flag
+    is_subtask = issue_type.get("subtask", False) if issue_type else False
+
+    result: dict[str, Any] = {
         "key": raw_issue.get("key"),
         "id": raw_issue.get("id"),
         "self": raw_issue.get("self"),
@@ -211,6 +221,15 @@ def _normalize_issue(raw_issue: dict[str, Any]) -> dict[str, Any]:
         "updated": fields.get("updated"),
         "labels": fields.get("labels", []),
     }
+
+    if parent_key:
+        result["parent"] = parent_key
+    if epic_link:
+        result["epic_link"] = epic_link
+    if is_subtask:
+        result["subtask"] = True
+
+    return result
 
 
 def _normalize_comment(raw_comment: dict[str, Any]) -> dict[str, Any]:

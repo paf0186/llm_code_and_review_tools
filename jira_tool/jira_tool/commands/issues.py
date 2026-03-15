@@ -121,6 +121,11 @@ def register(main):
                 config = ctx.obj.get("config")
                 epic_field = config.get_extra("epic_link_field", "customfield_10092") if config else "customfield_10092"
                 fields[epic_field] = extract_issue_key(epic)
+            # JIRA requires "Epic Name" (customfield_10093) when creating Epics
+            if issue_type.lower() == "epic":
+                config = ctx.obj.get("config")
+                epic_name_field = config.get_extra("epic_name_field", "customfield_10093") if config else "customfield_10093"
+                fields[epic_name_field] = summary
 
             raw_issue = client.create_issue(
                 project_key=project,
