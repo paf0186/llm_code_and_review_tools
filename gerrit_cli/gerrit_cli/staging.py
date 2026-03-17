@@ -298,7 +298,9 @@ class StagingManager:
             change_url: URL to the change (optional)
         """
         if not change_url:
-            change_url = f"https://review.whamcloud.com/{change_number}"
+            import os
+            base = os.environ.get("GERRIT_URL", "")
+            change_url = f"{base}/{change_number}" if base else str(change_number)
 
         self.add_operation(
             change_number=change_number,

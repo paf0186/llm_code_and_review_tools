@@ -37,21 +37,20 @@ class InteractiveSession:
         """
         # Find all patches in series
         print("Finding patches in series...")
-        series_patches = self.series_finder.find_series(url)
+        series = self.series_finder.find_series(url)
 
-        if not series_patches:
+        if not series or not series.patches:
             print("Error: Could not find series")
             return
 
-        print(f"\nFound {len(series_patches)} patch(es) in series\n")
+        print(f"\nFound {len(series.patches)} patch(es) in series\n")
 
         # Collect all comments from all patches
         all_comments = []
-        for patch in series_patches:
-            patch_url = f"https://review.whamcloud.com/{patch.change_number}"
+        for patch in series.patches:
             try:
                 extracted = extract_comments(
-                    url=patch_url,
+                    url=patch.url,
                     include_resolved=False,
                     include_code_context=True,
                 )
@@ -99,20 +98,15 @@ class InteractiveSession:
 
         # Display comment
         print(f"\n[{comment_num}/{self.total_comments}] Change {change_number}: {patch.subject}")
-        print(f"Change URL: https://review.whamcloud.com/{change_number}")
+        change_url = extracted.change_info.url
+        print(f"Change URL: {change_url}")
         print("-" * 70)
 
         root = thread.root_comment
         location = f"{root.file_path}:{root.line or 'patchset'}"
 
-        # Build comment URL
-        comment_url = f"https://review.whamcloud.com/c/fs/lustre-release/+/{change_number}"
-        if root.line:
-            # For inline comments, link to the file view
-            comment_url += f"/comment/{root.id}/"
-        else:
-            # For patchset-level comments
-            comment_url += f"/comment/{root.id}/"
+        # Build comment URL from the change URL
+        comment_url = f"{change_url}/comment/{root.id}/"
 
         print(f"Location: {location}")
         print(f"Comment URL: {comment_url}")
@@ -244,7 +238,7 @@ class InteractiveSession:
         print(f"\n🔧 Starting edit mode for patch {change_number}...")
         print("=" * 70)
 
-        series_url = f"https://review.whamcloud.com/{change_number}"
+        series_url = context['extracted'].change_info.url
         success, message = work_on_patch(series_url, change_number)
         print(message)
 
