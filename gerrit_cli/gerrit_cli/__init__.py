@@ -57,7 +57,7 @@ Example usage:
         print(f"  {patch.change_number}: {patch.subject}")
 """
 
-from .client import GerritCommentsClient, GerritConfigError
+from .client import GerritCommentsClient, GerritConfigError  # noqa: F401
 from .envelope import (
     error_response,
     error_response_from_dict,
@@ -143,6 +143,7 @@ __all__ = [
     "ReplyResult",
     # Client
     "GerritCommentsClient",
+    "GerritConfigError",
     # Extractor
     "CommentExtractor",
     "extract_comments",

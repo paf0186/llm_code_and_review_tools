@@ -54,10 +54,9 @@ class SeriesStatus:
 
         for patch in series.patches:
             # Count unresolved comments
-            patch_url = f"https://review.whamcloud.com/{patch.change_number}"
             try:
                 extracted = extract_comments(
-                    url=patch_url,
+                    url=patch.url,
                     include_resolved=False,
                     include_code_context=False,
                 )
@@ -69,7 +68,7 @@ class SeriesStatus:
             # Check for staged operations
             staged_count = 0
             try:
-                staged = self.staging_manager.load_staged_operations(patch.change_number)
+                staged = self.staging_manager.load_staged(patch.change_number)
                 if staged:
                     staged_count = len(staged.operations)
             except Exception:
