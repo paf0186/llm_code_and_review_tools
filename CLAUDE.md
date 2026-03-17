@@ -1,0 +1,126 @@
+# LLM Code and Review Tools
+
+Repository of CLI tools designed for LLM agent use. Each tool
+outputs JSON to stdout by default (no envelope wrapper). Use
+`--envelope` for the full `{ok, data, meta}` wrapper. Do NOT
+use `--pretty` — raw JSON is preferred; agents parse it directly.
+
+## Tools
+
+### JIRA tool (`jira`, v0.5.0)
+
+Bug tracking, issue management, and test failure research.
+
+**Key commands:** `jira get`, `jira search` (JQL), `jira comment`,
+`jira create`, `jira update`, `jira link`, `jira transition`,
+`jira assign`, `jira filter list/export/import`.
+
+**Multi-instance support:** `-I <name>` selects a named instance
+(e.g., `jira -I cloud get EX-13727`). Without `-I`, uses the
+default instance. Instances configured in `~/.jira-tool.json`.
+
+**Cloud vs Server:** The tool auto-detects JIRA Cloud instances
+(`.atlassian.net`) and handles API differences transparently:
+- Uses REST API v3 for Cloud, v2 for Server
+- Converts description/comment text to Atlassian Document Format
+  (ADF) on write, and ADF back to plain text on read
+- Uses `accountId` instead of `username` for Cloud (GDPR mode)
+- Resolves display names to `accountId` automatically for
+  assign, watch, and unwatch commands
+- Uses `nextPageToken` pagination for Cloud search
+
+**Configuration (`~/.jira-tool.json`):**
+```json
+{
+  "instances": {
+    "lu": {
+      "server": "https://jira.whamcloud.com",
+      "auth": {
+        "type": "bearer",
+        "token": "<Whamcloud personal access token>"
+      }
+    },
+    "cloud": {
+      "server": "https://your-org.atlassian.net",
+      "auth": {
+        "type": "basic",
+        "email": "<your email>",
+        "token": "<Atlassian API token>"
+      }
+    }
+  },
+  "default": "lu"
+}
+```
+
+**Token generation:**
+- Whamcloud PAT: `jira.whamcloud.com` → Profile → Personal
+  Access Tokens
+- Atlassian API token: `id.atlassian.com/manage-profile/security/api-tokens`
+
+Run `jira --help` for full command list.
+
+### Gerrit tool (`gerrit`, aliased as `gc`, v0.2.1)
+
+Code review, comment management, patch workflows, and CI triage.
+
+**Key commands:**
+- **Review:** `gc comments <url>`, `gc reply <url> <idx> "msg"`,
+  `gc review <url>`, `gc done <url> <idx>`, `gc ack <url> <idx>`
+- **Patch workflow:** `gc work-on-patch <url>`, `gc finish-patch`,
+  `gc next-patch`, `gc abort`, `gc status`
+- **Info:** `gc info <url>`, `gc series-info <url>`,
+  `gc series-status <url>`, `gc related <url>`, `gc diff <url>`
+- **CI:** `gc maloo <url>`, `gc watch <file>`
+- **Search:** `gc search <query>`, `gc s <query>`
+- **Manage:** `gc vote <url> <label> <score>`, `gc message <url> "msg"`,
+  `gc set-topic <url> <topic>`, `gc hashtag <url> --add <tag>`,
+  `gc rebase <url>`, `gc abandon <url>`, `gc restore <url>`,
+  `gc checkout <url>`
+- **Reviewers:** `gc reviewers <url>`, `gc add-reviewer <url> <name>`,
+  `gc remove-reviewer <url> <name>`, `gc find-user <name>`
+
+**Configuration:** Environment variables in `.env` file, loaded
+from (in priority order):
+1. `~/.config/gerrit-cli/.env`
+2. `/etc/gerrit-cli/.env`
+3. `/shared/support_files/.env`
+4. `./.env`
+
+**Required env vars:**
+```bash
+GERRIT_URL=https://review.whamcloud.com
+GERRIT_USER=<your Gerrit username>
+GERRIT_PASS=<your Gerrit HTTP password>
+```
+
+**HTTP password:** Log into `review.whamcloud.com` → Settings →
+HTTP Credentials → Generate Password.
+
+Run `gerrit --help` for full command list.
+Run `gc examples` for common workflow examples.
+Run `gc explain <command>` for detailed usage of a command.
+
+## Development
+
+All tools share `llm-tool-common` for envelope formatting and
+error handling. Each tool is an editable pip install from its
+subdirectory.
+
+**Install a tool for development:**
+```bash
+cd jira_tool && pip install -e .
+cd gerrit_cli && pip install -e .
+```
+
+**Testing:** `pytest` from each tool directory. Use `-m unit`
+for unit tests, `-m integration` for tests requiring network.
+
+## Output format
+
+All tools follow the same output convention:
+- **Default:** JSON data payload only (no wrapper)
+- **`--envelope`:** Full `{ok: bool, data: ..., meta: ...}` wrapper
+- **`--debug`:** (jira) Debug output to stderr
+- **Exit codes:** 0 = success, 2 = auth error, 4 = invalid input,
+  5 = not found, 8 = server error
