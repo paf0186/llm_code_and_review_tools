@@ -38,12 +38,16 @@ def register(main):
             # Normalize watchers
             watchers = []
             for w in raw_watchers.get("watchers", []):
-                watchers.append({
+                watcher_data = {
                     "name": w.get("name"),
                     "display_name": w.get("displayName"),
                     "email": w.get("emailAddress"),
                     "active": w.get("active"),
-                })
+                }
+                # Cloud uses accountId instead of name
+                if w.get("accountId"):
+                    watcher_data["account_id"] = w["accountId"]
+                watchers.append(watcher_data)
 
             watchers_data = {
                 "issue_key": key,
@@ -85,7 +89,8 @@ def register(main):
             if user is None:
                 # Get current user from the myself endpoint
                 myself = client._request("GET", "myself")
-                user = myself.get("name")
+                # Cloud uses accountId, Server uses name
+                user = myself.get("accountId") or myself.get("name")
                 if not user:
                     from ..errors import InvalidInputError, ErrorCode
                     raise InvalidInputError(
@@ -134,7 +139,8 @@ def register(main):
             if user is None:
                 # Get current user from the myself endpoint
                 myself = client._request("GET", "myself")
-                user = myself.get("name")
+                # Cloud uses accountId, Server uses name
+                user = myself.get("accountId") or myself.get("name")
                 if not user:
                     from ..errors import InvalidInputError, ErrorCode
                     raise InvalidInputError(

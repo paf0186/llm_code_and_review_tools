@@ -73,6 +73,11 @@ class JiraConfig:
         # Normalize server URL (remove trailing slash)
         self.server = self.server.rstrip("/")
 
+    @property
+    def is_cloud(self) -> bool:
+        """Detect if this is a JIRA Cloud instance (atlassian.net)."""
+        return ".atlassian.net" in self.server
+
     def get_extra(self, key: str, default: Any = None) -> Any:
         """Get an extra config value (anything beyond server/token)."""
         if self.extras:

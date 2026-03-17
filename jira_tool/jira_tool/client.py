@@ -18,6 +18,30 @@ from .errors import (
     NotFoundError,
 )
 
+
+def _text_to_adf(text: str) -> dict[str, Any]:
+    """Convert plain text to Atlassian Document Format (ADF).
+
+    Cloud v3 API requires ADF for description and comment body fields
+    instead of plain text strings.
+    """
+    # Split into paragraphs on double newlines; single newlines become hardBreak
+    paragraphs = text.split("\n\n")
+    content = []
+    for para in paragraphs:
+        inline: list[dict[str, Any]] = []
+        lines = para.split("\n")
+        for i, line in enumerate(lines):
+            if line:
+                inline.append({"type": "text", "text": line})
+            if i < len(lines) - 1:
+                inline.append({"type": "hardBreak"})
+        if inline:
+            content.append({"type": "paragraph", "content": inline})
+    return {"version": 1, "type": "doc", "content": content or [
+        {"type": "paragraph", "content": [{"type": "text", "text": ""}]}
+    ]}
+
 # Default retry configuration
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_BACKOFF = 1.0  # Base delay in seconds
@@ -95,7 +119,8 @@ class JiraClient:
 
     def _build_url(self, endpoint: str) -> str:
         """Build full URL for API endpoint."""
-        base = f"{self.config.server}/rest/api/2/"
+        api_version = "3" if self.config.is_cloud else "2"
+        base = f"{self.config.server}/rest/api/{api_version}/"
         return urljoin(base, endpoint.lstrip("/"))
 
     def _calculate_retry_delay(self, attempt: int) -> float:
@@ -438,6 +463,7 @@ class JiraClient:
         fields: list[str] | None = None,
         start_at: int = 0,
         max_results: int = 50,
+        next_page_token: str | None = None,
     ) -> dict[str, Any]:
         """
         Search for issues using JQL.
@@ -445,21 +471,45 @@ class JiraClient:
         Args:
             jql: JQL query string
             fields: Optional list of fields to return
-            start_at: Starting index for pagination
+            start_at: Starting index for pagination (v2 only)
             max_results: Maximum results to return (default: 50, max: 1000)
+            next_page_token: Pagination token (Cloud v3 only)
 
         Returns:
             Search results with issues and pagination info
         """
-        body: dict[str, Any] = {
-            "jql": jql,
-            "startAt": start_at,
-            "maxResults": min(max_results, 1000),
-        }
-        if fields:
-            body["fields"] = fields
-
-        return self._request("POST", "search", json_data=body, context=f"JQL: {jql[:50]}")
+        if self.config.is_cloud:
+            # Cloud v3 search/jql returns only issue IDs by default;
+            # request standard fields so callers get usable results.
+            _CLOUD_DEFAULT_FIELDS = [
+                "summary", "status", "priority", "issuetype", "project",
+                "assignee", "reporter", "resolution", "created", "updated",
+                "labels", "description", "components", "fixVersions",
+            ]
+            body: dict[str, Any] = {
+                "jql": jql,
+                "maxResults": min(max_results, 1000),
+                "fields": fields if fields else _CLOUD_DEFAULT_FIELDS,
+            }
+            if next_page_token:
+                body["nextPageToken"] = next_page_token
+            result = self._request("POST", "search/jql", json_data=body,
+                                   context=f"JQL: {jql[:50]}")
+            # Normalize Cloud v3 response to match v2 shape for callers
+            result.setdefault("startAt", 0)
+            result.setdefault("maxResults", max_results)
+            result.setdefault("total", len(result.get("issues", [])))
+            return result
+        else:
+            body = {
+                "jql": jql,
+                "startAt": start_at,
+                "maxResults": min(max_results, 1000),
+            }
+            if fields:
+                body["fields"] = fields
+            return self._request("POST", "search", json_data=body,
+                                 context=f"JQL: {jql[:50]}")
 
     # =========================================================================
     # Comment Operations
@@ -509,7 +559,8 @@ class JiraClient:
         Returns:
             Created comment data
         """
-        json_data: dict[str, Any] = {"body": body}
+        comment_body = _text_to_adf(body) if self.config.is_cloud else body
+        json_data: dict[str, Any] = {"body": comment_body}
         if visibility:
             json_data["visibility"] = visibility
         return self._request(
@@ -539,7 +590,8 @@ class JiraClient:
         Returns:
             Updated comment data
         """
-        json_data: dict[str, Any] = {"body": body}
+        comment_body = _text_to_adf(body) if self.config.is_cloud else body
+        json_data: dict[str, Any] = {"body": comment_body}
         if visibility:
             json_data["visibility"] = visibility
         return self._request(
@@ -825,7 +877,9 @@ class JiraClient:
         """
         body: dict[str, Any] = {"timeSpent": time_spent}
         if comment:
-            body["comment"] = comment
+            body["comment"] = (
+                _text_to_adf(comment) if self.config.is_cloud else comment
+            )
         if started:
             body["started"] = started
 
@@ -923,7 +977,9 @@ class JiraClient:
         }
 
         if description:
-            body["fields"]["description"] = description
+            body["fields"]["description"] = (
+                _text_to_adf(description) if self.config.is_cloud else description
+            )
 
         return self._request("POST", "issue", json_data=body)
 
@@ -957,10 +1013,15 @@ class JiraClient:
         if summary is not None:
             update_fields["summary"] = summary
         if description is not None:
-            update_fields["description"] = description
+            update_fields["description"] = (
+                _text_to_adf(description) if self.config.is_cloud else description
+            )
         if assignee is not None:
-            # Empty string means unassign, otherwise set to username
-            update_fields["assignee"] = {"name": assignee} if assignee else None
+            if self.config.is_cloud:
+                # Cloud uses accountId, not name
+                update_fields["assignee"] = {"accountId": assignee} if assignee else None
+            else:
+                update_fields["assignee"] = {"name": assignee} if assignee else None
         if priority is not None:
             update_fields["priority"] = {"name": priority}
         if labels is not None:
@@ -1089,8 +1150,10 @@ class JiraClient:
         Returns:
             List of user dicts
         """
+        # Cloud GDPR strict mode rejects 'username'; use 'query' instead
+        query_param = "query" if self.config.is_cloud else "username"
         params = {
-            "username": query,
+            query_param: query,
             "maxResults": str(max_results),
         }
         return self._request("GET", "user/search", params=params, context=f"user search: {query}")
@@ -1164,14 +1227,14 @@ class JiraClient:
 
         Args:
             key: Issue key (e.g., "PROJ-123")
-            username: Username to add as watcher
+            username: Username or accountId to add as watcher
 
         Returns:
             Empty dict on success (JIRA returns 204)
         """
         import json
 
-        # JIRA expects the username as a raw JSON string, not an object
+        # JIRA expects the username/accountId as a raw JSON string, not an object
         url = self._build_url(f"issue/{key}/watchers")
         response = self._raw_request_with_retry(
             "POST",
@@ -1187,15 +1250,17 @@ class JiraClient:
 
         Args:
             key: Issue key (e.g., "PROJ-123")
-            username: Username to remove as watcher
+            username: Username or accountId to remove as watcher
 
         Returns:
             Empty dict on success (JIRA returns 204)
         """
+        # Cloud GDPR mode uses accountId param instead of username
+        param_name = "accountId" if self.config.is_cloud else "username"
         return self._request(
             "DELETE",
             f"issue/{key}/watchers",
-            params={"username": username},
+            params={param_name: username},
             context=f"remove watcher {username} from {key}",
         )
 

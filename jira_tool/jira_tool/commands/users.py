@@ -36,12 +36,16 @@ def register(main):
 
             users = []
             for u in raw_users:
-                users.append({
+                user_data = {
                     "name": u.get("name"),
                     "display_name": u.get("displayName"),
                     "email": u.get("emailAddress"),
                     "active": u.get("active"),
-                })
+                }
+                # Cloud uses accountId instead of name for user identity
+                if u.get("accountId"):
+                    user_data["account_id"] = u["accountId"]
+                users.append(user_data)
 
             data = {
                 "query": query,
