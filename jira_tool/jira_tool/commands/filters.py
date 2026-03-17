@@ -434,6 +434,18 @@ def register(main):
 
         try:
             client = get_client(ctx)
+
+            if client.config.is_cloud:
+                from ..errors import ErrorCode, InvalidInputError
+                raise InvalidInputError(
+                    code=ErrorCode.INVALID_INPUT,
+                    message=(
+                        "filter scrape is not supported on JIRA Cloud "
+                        "(ManageFilters.jspa does not exist). "
+                        "Use 'jira filter list' or 'jira filter export' instead."
+                    ),
+                )
+
             session = client._session
             server = client.config.server
 

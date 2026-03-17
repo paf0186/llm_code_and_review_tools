@@ -49,6 +49,11 @@ def _adf_to_text(adf: Any) -> str:
     Cloud v3 API returns ADF dicts for description and comment body
     fields. This extracts readable text, preserving paragraph breaks.
     Returns the input unchanged if it's already a string or None.
+
+    Handles all common ADF node types: paragraphs, headings, lists,
+    code blocks, tables, panels, mentions, emoji, inline cards,
+    and media references. Marks (bold, italic, links, etc.) are
+    rendered as plain text with link URLs appended in parentheses.
     """
     if adf is None:
         return None
@@ -57,34 +62,113 @@ def _adf_to_text(adf: Any) -> str:
     if not isinstance(adf, dict) or adf.get("type") != "doc":
         return str(adf)
 
-    def _extract(node: Any) -> str:
+    def _extract(node: Any, list_depth: int = 0, ordered_index: int = 0) -> str:
         if isinstance(node, str):
             return node
         if not isinstance(node, dict):
             return ""
         node_type = node.get("type", "")
+        attrs = node.get("attrs", {})
+        children = node.get("content", [])
+
+        # --- Inline nodes ---
         if node_type == "text":
-            return node.get("text", "")
+            text = node.get("text", "")
+            # Handle link marks — append URL
+            for mark in node.get("marks", []):
+                if mark.get("type") == "link":
+                    href = mark.get("attrs", {}).get("href", "")
+                    if href and href != text:
+                        text = f"{text} ({href})"
+            return text
         if node_type == "hardBreak":
             return "\n"
         if node_type == "mention":
-            return node.get("attrs", {}).get("text", "")
+            return attrs.get("text", "@unknown")
         if node_type == "emoji":
-            return node.get("attrs", {}).get("shortName", "")
-        # Recurse into children
-        children = node.get("content", [])
-        text = "".join(_extract(child) for child in children)
-        # Add paragraph/heading separators
-        if node_type in ("paragraph", "heading", "blockquote",
-                         "codeBlock", "mediaGroup"):
-            text += "\n"
+            return attrs.get("shortName", attrs.get("text", ""))
+        if node_type == "inlineCard":
+            return attrs.get("url", "")
+        if node_type == "media":
+            # Media nodes have an ID but no readable text
+            alt = attrs.get("alt", "")
+            return f"[media: {alt}]" if alt else "[media]"
+
+        # --- Block nodes ---
+        text = "".join(
+            _extract(child, list_depth, i)
+            for i, child in enumerate(children)
+        )
+
+        if node_type in ("paragraph", "mediaSingle", "mediaGroup"):
+            return text + "\n"
+        if node_type == "heading":
+            level = attrs.get("level", 1)
+            return "#" * level + " " + text + "\n"
+        if node_type == "codeBlock":
+            lang = attrs.get("language", "")
+            header = f"```{lang}\n" if lang else "```\n"
+            return header + text + "```\n"
+        if node_type == "blockquote":
+            lines = text.rstrip("\n").split("\n")
+            return "\n".join("> " + line for line in lines) + "\n"
+        if node_type in ("bulletList", "orderedList"):
+            # Children are listItems; pass depth for indentation
+            items = []
+            for i, child in enumerate(children):
+                items.append(_extract(child, list_depth + 1, i))
+            return "".join(items)
         if node_type == "listItem":
-            text = "- " + text
+            indent = "  " * (list_depth - 1)
+            # Check parent type from context — ordered_index is the
+            # position within the parent list
+            prefix = f"{ordered_index + 1}. "
+            # If we're inside a bulletList, use "- " instead
+            # We detect this by checking if ordered_index matters;
+            # callers pass the index for both types, but bulletList
+            # items should use "- "
+            # Simple heuristic: if the text starts with a number prefix
+            # from a nested orderedList, keep it. Otherwise use "- ".
+            # Actually, we just use "- " always and let orderedList
+            # override below.
+            return indent + "- " + text
+        if node_type == "table":
+            return text + "\n"
+        if node_type == "tableRow":
+            # Join cells with " | "
+            cells = [_extract(c, list_depth).strip() for c in children]
+            return "| " + " | ".join(cells) + " |\n"
+        if node_type == "tableCell":
+            return text.strip()
+        if node_type == "panel":
+            panel_type = attrs.get("panelType", "info")
+            return f"[{panel_type}] {text}"
+        if node_type == "rule":
+            return "---\n"
+
+        # Default: just recurse
         return text
 
-    parts = [_extract(block) for block in adf.get("content", [])]
-    # Join and clean up trailing whitespace per line, collapse triple+ newlines
-    result = "\n".join(parts).strip()
+    # Handle orderedList items properly — patch listItem rendering
+    def _extract_block(node: Any) -> str:
+        if not isinstance(node, dict):
+            return _extract(node)
+        if node.get("type") == "orderedList":
+            items = []
+            start = node.get("attrs", {}).get("order", 1)
+            indent = ""
+            for i, child in enumerate(node.get("content", [])):
+                child_text = "".join(
+                    _extract(grandchild, 1, i)
+                    for grandchild in child.get("content", [])
+                )
+                items.append(f"{indent}{start + i}. {child_text}")
+            return "".join(items)
+        return _extract(node)
+
+    parts = [_extract_block(block) for block in adf.get("content", [])]
+    result = "".join(parts).strip()
+    # Collapse triple+ newlines
     while "\n\n\n" in result:
         result = result.replace("\n\n\n", "\n\n")
     return result
