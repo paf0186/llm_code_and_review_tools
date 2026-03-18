@@ -1146,6 +1146,45 @@ def add_related_parser(subparsers):
     return parser
 
 
+def add_sashiko_review_parser(subparsers):
+    """Add the 'sashiko-review' subcommand parser."""
+    parser = subparsers.add_parser(
+        "sashiko-review",
+        aliases=["sr"],
+        help="Submit a change to Sashiko for automated AI code review",
+    )
+    parser.add_argument(
+        "change",
+        help="Gerrit change number or URL",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show findings without posting to Gerrit",
+    )
+    parser.add_argument(
+        "--vote",
+        action="store_true",
+        help="Include a Code-Review vote based on severity",
+    )
+    parser.add_argument(
+        "--repo",
+        help="Path to local git repository (auto-detected if not set)",
+    )
+    parser.add_argument(
+        "--sashiko-url",
+        default="http://127.0.0.1:8080",
+        help="Sashiko server URL (default: http://127.0.0.1:8080)",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=60,
+        help="Max minutes to wait for review (default: 60)",
+    )
+    return parser
+
+
 def setup_parsers(subparsers, handlers):
     """Set up all subparsers and bind them to command handlers.
 
@@ -1240,6 +1279,11 @@ def setup_parsers(subparsers, handlers):
     # Shortcut commands
     add_done_parser(subparsers).set_defaults(func=handlers['done'])
     add_ack_parser(subparsers).set_defaults(func=handlers['ack'])
+
+    # Sashiko automated review
+    if 'sashiko_review' in handlers:
+        add_sashiko_review_parser(subparsers).set_defaults(
+            func=handlers['sashiko_review'])
 
     # Self-description (LLM discoverability)
     add_describe_parser(subparsers).set_defaults(func=handlers['describe'])

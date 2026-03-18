@@ -152,6 +152,32 @@ cmd_continue_reintegration = _cmd_reintegration.cmd_continue_reintegration
 cmd_skip_reintegration = _cmd_reintegration.cmd_skip_reintegration
 
 
+def cmd_sashiko_review(args):
+    """Submit a Gerrit change for Sashiko automated AI code review."""
+    from .sashiko_bridge import do_review
+    from .client import GerritCommentsClient
+
+    change_input = args.change
+    if change_input.startswith("http"):
+        _, change_number = GerritCommentsClient.parse_gerrit_url(change_input)
+    else:
+        change_number = int(change_input)
+
+    result = do_review(
+        change_number=change_number,
+        sashiko_url=args.sashiko_url,
+        repo_path=args.repo,
+        dry_run=args.dry_run,
+        vote=args.vote,
+        max_minutes=args.timeout,
+    )
+
+    if not result.get("success"):
+        output_error(result.get("error", "Review failed"), "sashiko")
+    else:
+        output_success(result, "sashiko-review", getattr(args, "pretty", False))
+
+
 # Module-level flag for --envelope; read by _helpers.output_result().
 FULL_ENVELOPE = False
 
@@ -253,6 +279,7 @@ def main():
         'done': cmd_done,
         'ack': cmd_ack,
         'describe': cmd_describe,
+        'sashiko_review': cmd_sashiko_review,
     }
 
     setup_parsers(subparsers, handlers)
