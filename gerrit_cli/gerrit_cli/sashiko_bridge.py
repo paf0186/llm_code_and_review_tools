@@ -91,8 +91,16 @@ def submit_to_sashiko(
     if repo_path:
         payload["repo"] = repo_path
 
-    resp = requests.post(url, json=payload, timeout=30)
-    resp.raise_for_status()
+    try:
+        resp = requests.post(url, json=payload, timeout=30)
+        resp.raise_for_status()
+    except requests.ConnectionError:
+        raise RuntimeError(
+            f"Cannot connect to Sashiko server at {sashiko_url}. "
+            "Is the server running? Start it with: cd ~/sashiko/sashiko-gerrit-review && ./target/release/sashiko"
+        )
+    except requests.RequestException as e:
+        raise RuntimeError(f"Sashiko server error: {e}")
     data = resp.json()
     print(f"  Submitted to Sashiko: id={data.get('id', '?')}, status={data.get('status', '?')}")
     return data.get("id", sha)
