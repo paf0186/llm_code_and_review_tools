@@ -579,7 +579,10 @@ body.light .sbadge-ABANDONED { background: #8b949e; color: #fff; }
         <span style="color:var(--text-muted);font-weight:600">Nodes:</span>
         <div class="legend-item"><span class="legend-dot" style="background:#238636"></span> Ready</div>
         <div class="legend-item"><span class="legend-dot" style="background:#1f6feb"></span> Pending</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#b62324"></span> Issues</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#7a1a1a"></span> CR Veto</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#d32f2f"></span> Maloo</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#c47f17"></span> Jenkins</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#9b2d6e"></span> Other -1</div>
         <div class="legend-item"><span class="legend-dot" style="background:#6e40c9"></span> Merged</div>
         <div class="legend-item"><span class="legend-dot" style="background:#484f58"></span> Abandoned</div>
         <span style="color:var(--text-muted);font-weight:600;margin-left:8px">Edges:</span>
@@ -948,8 +951,11 @@ function getColors() {
                 : { bg: '#30363d', border: '#484f58', font: '#8b949e' },
         },
         // Review health: overrides STATUS.NEW color for active patches
-        REVIEW_GOOD: { bg: '#238636', border: '#3fb950', font: '#fff' },
-        REVIEW_BAD:  { bg: '#b62324', border: '#f85149', font: '#fff' },
+        REVIEW_GOOD:       { bg: '#238636', border: '#3fb950', font: '#fff' },
+        REVIEW_BAD_VETO:   { bg: '#7a1a1a', border: '#a82828', font: '#fff' },  // CR veto — dark red
+        REVIEW_BAD_MALOO:  { bg: '#d32f2f', border: '#f85149', font: '#fff' },  // Maloo -1 — bright red
+        REVIEW_BAD_JENKINS:{ bg: '#c47f17', border: '#e8a020', font: '#fff' },  // Jenkins -1 — orange
+        REVIEW_BAD_OTHER:  { bg: '#9b2d6e', border: '#d63384', font: '#fff' },  // Other -1 — pink
         DIM: light
             ? { bg: '#eaeef2', border: '#d0d7de', font: '#8b949e' }
             : { bg: '#161b22', border: '#21262d', font: '#484f58' },
@@ -967,17 +973,27 @@ function getColors() {
 }
 
 // ─── REVIEW HEALTH ───
-// Returns 'good', 'bad', or 'pending' based on review state.
-// Good: all verified +1 (no -1s) AND at least 2 non-author CR +1s
-// Bad: any verified -1 OR any CR vote <= -1 (veto)
-// Pending: everything else (undecided)
+// Returns: 'good', 'pending', or a specific failure type:
+//   'bad_veto'    — CR -1/-2 (highest priority)
+//   'bad_maloo'   — Maloo verified -1
+//   'bad_jenkins' — Jenkins verified -1
+//   'bad_other'   — other verified -1
 function reviewHealth(node) {
     if (node.status !== 'NEW') return 'pending';
     const rv = node.review || {};
 
-    // Bad: any verified failure or CR veto
-    if (rv.verified_fail) return 'bad';
-    if (rv.cr_veto) return 'bad';
+    // CR veto is highest priority (overrides everything)
+    if (rv.cr_veto) return 'bad_veto';
+
+    // Verified failures: classify by voter name
+    if (rv.verified_fail) {
+        const failVoters = (rv.verified_votes || [])
+            .filter(v => v.value < 0)
+            .map(v => v.name.toLowerCase());
+        if (failVoters.some(n => n === 'maloo')) return 'bad_maloo';
+        if (failVoters.some(n => n === 'jenkins')) return 'bad_jenkins';
+        return 'bad_other';
+    }
 
     // Good: verified passed AND >= 2 non-author CR +1s
     if (rv.verified_pass) {
@@ -1027,7 +1043,10 @@ function renderGraph() {
             colors = C.DIM;
         } else if (node.status === 'NEW') {
             const health = reviewHealth(node);
-            if (health === 'bad') colors = C.REVIEW_BAD;
+            if (health === 'bad_veto') colors = C.REVIEW_BAD_VETO;
+            else if (health === 'bad_maloo') colors = C.REVIEW_BAD_MALOO;
+            else if (health === 'bad_jenkins') colors = C.REVIEW_BAD_JENKINS;
+            else if (health === 'bad_other') colors = C.REVIEW_BAD_OTHER;
             else if (health === 'good') colors = C.REVIEW_GOOD;
             else colors = C.STATUS.NEW;
         } else {
@@ -1204,11 +1223,20 @@ function renderReviewPanel(node) {
 
     // Health summary
     const health = reviewHealth(node);
-    const healthBadge = health === 'good'
-        ? '<span style="color:#3fb950;font-weight:700">\u2713 Ready</span>'
-        : health === 'bad'
-        ? '<span style="color:#f85149;font-weight:700">\u2717 Issues</span>'
-        : '<span style="color:#8b949e">Pending</span>';
+    let healthBadge;
+    if (health === 'good') {
+        healthBadge = '<span style="color:#3fb950;font-weight:700">\u2713 Ready</span>';
+    } else if (health === 'bad_veto') {
+        healthBadge = '<span style="color:#a82828;font-weight:700">\u2717 CR Veto</span>';
+    } else if (health === 'bad_maloo') {
+        healthBadge = '<span style="color:#f85149;font-weight:700">\u2717 Maloo Failed</span>';
+    } else if (health === 'bad_jenkins') {
+        healthBadge = '<span style="color:#e8a020;font-weight:700">\u2717 Jenkins Failed</span>';
+    } else if (health === 'bad_other') {
+        healthBadge = '<span style="color:#d63384;font-weight:700">\u2717 Verified Failed</span>';
+    } else {
+        healthBadge = '<span style="color:#8b949e">Pending</span>';
+    }
 
     // Verified section — show ALL voters with CI links
     const vVotes = rv.verified_votes || [];
