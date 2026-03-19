@@ -486,7 +486,7 @@ body {
     padding: 2px 8px; border-radius: 10px; font-weight: 600; font-size: 11px;
 }
 .badge-new { background: #1f6feb; color: #fff; }
-.badge-merged { background: #238636; color: #fff; }
+.badge-merged { background: #6e40c9; color: #fff; }
 .badge-abandoned { background: #484f58; color: #c9d1d9; }
 body.light .badge-abandoned { background: #8b949e; color: #fff; }
 .badge-stale { background: #d29922; color: #000; }
@@ -576,13 +576,14 @@ body.light .sbadge-ABANDONED { background: #8b949e; color: #fff; }
     <h1 id="title">Gerrit Series Graph</h1>
     <div class="stats" id="stats"></div>
     <div class="legend">
+        <span style="color:var(--text-muted);font-weight:600">Nodes:</span>
         <div class="legend-item"><span class="legend-dot" style="background:#238636"></span> Ready</div>
         <div class="legend-item"><span class="legend-dot" style="background:#1f6feb"></span> Pending</div>
         <div class="legend-item"><span class="legend-dot" style="background:#b62324"></span> Issues</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#238636;border:2px solid #3fb950"></span> Merged</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#6e40c9"></span> Merged</div>
         <div class="legend-item"><span class="legend-dot" style="background:#484f58"></span> Abandoned</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#f85149"></span> Anchor</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#d29922"></span> Stale edge</div>
+        <span style="color:var(--text-muted);font-weight:600;margin-left:8px">Edges:</span>
+        <div class="legend-item"><span class="legend-dot" style="background:#d29922"></span> Stale</div>
     </div>
 </div>
 
@@ -941,7 +942,7 @@ function getColors() {
     return {
         STATUS: {
             NEW:       { bg: '#1f6feb', border: '#388bfd', font: '#fff' },
-            MERGED:    { bg: '#238636', border: '#3fb950', font: '#fff' },
+            MERGED:    { bg: '#6e40c9', border: '#8957e5', font: '#fff' },
             ABANDONED: light
                 ? { bg: '#afb8c1', border: '#8b949e', font: '#24292f' }
                 : { bg: '#30363d', border: '#484f58', font: '#8b949e' },
