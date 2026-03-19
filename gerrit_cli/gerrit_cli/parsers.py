@@ -939,9 +939,14 @@ def add_graph_parser(subparsers):
         help="Don't open the HTML file in a browser (just save it)",
     )
     parser.add_argument(
-        "--skip-details",
+        "--skip-ci-details",
         action="store_true",
-        help="Skip fetching CI links and comments (faster, fewer API calls)",
+        help="Skip fetching CI links (faster, fewer API calls)",
+    )
+    parser.add_argument(
+        "--comments",
+        action="store_true",
+        help="Fetch detailed inline comments per change (slow, adds ~30s for large series)",
     )
     parser.add_argument(
         "--pretty", "-p",

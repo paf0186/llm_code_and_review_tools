@@ -40,6 +40,8 @@ def _empty_review() -> dict[str, Any]:
         "cr_veto": False,        # any CR vote <= -1
         "jenkins_url": "",       # link to Jenkins build
         "maloo_url": "",         # link to Maloo test results
+        "unresolved_count": 0,   # number of unresolved inline comments
+        "unresolved_comments": [],  # [{file, line, author, message, patch_set}]
     }
 
 
@@ -82,6 +84,66 @@ def _extract_ci_links(
                 )
 
     return {"jenkins_url": jenkins_url, "maloo_url": maloo_url}
+
+
+def _extract_unresolved_threads(
+    raw_comments: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    """Extract unresolved comment threads from /changes/{id}/comments.
+
+    Groups comments into threads using in_reply_to, then checks if the
+    last comment in each thread is unresolved (matching Gerrit's
+    unresolved_comment_count which counts unresolved threads).
+
+    Returns one entry per unresolved thread (the root comment).
+    """
+    # Flatten all comments with file info
+    all_comments: list[dict[str, Any]] = []
+    for filepath, file_comments in raw_comments.items():
+        for c in file_comments:
+            c["_file"] = filepath
+            all_comments.append(c)
+
+    # Index by ID
+    by_id: dict[str, dict[str, Any]] = {}
+    for c in all_comments:
+        by_id[c.get("id", "")] = c
+
+    # Group into threads: find root comments (no in_reply_to)
+    # and collect replies
+    threads: dict[str, list[dict[str, Any]]] = {}  # root_id -> [comments]
+    for c in all_comments:
+        # Walk up to find root
+        root = c
+        visited: set[str] = set()
+        while root.get("in_reply_to") and root["in_reply_to"] in by_id:
+            if root["in_reply_to"] in visited:
+                break
+            visited.add(root.get("id", ""))
+            root = by_id[root["in_reply_to"]]
+        root_id = root.get("id", "")
+        threads.setdefault(root_id, []).append(c)
+
+    # Sort each thread by date, check if last comment is unresolved
+    items: list[dict[str, Any]] = []
+    for root_id, thread_comments in threads.items():
+        thread_comments.sort(key=lambda x: x.get("updated", ""))
+        last = thread_comments[-1]
+        if not last.get("unresolved", False):
+            continue
+        # Thread is unresolved — show the root comment
+        root = by_id.get(root_id, last)
+        items.append({
+            "file": root.get("_file", ""),
+            "line": root.get("line", 0),
+            "author": root.get("author", {}).get("name", "?"),
+            "message": root.get("message", "")[:200],
+            "patch_set": root.get("patch_set", 0),
+            "id": root.get("id", ""),
+        })
+
+    items.sort(key=lambda x: (x["file"], x["line"]))
+    return items
 
 
 def _parse_labels(labels: dict[str, Any]) -> dict[str, Any]:
@@ -135,16 +197,22 @@ def build_graph(
     base_url: str,
     progress: bool = True,
     fetch_details: bool = True,
+    fetch_comments: bool = False,
 ) -> dict[str, Any]:
     """Build the full series graph with stale branch information.
 
     Args:
-        fetch_details: If True, fetch CI links and comments from change
-            messages (slower, requires extra API calls). If False, skip
-            message fetching for faster graph generation.
+        fetch_details: If True, fetch CI links from change messages
+            (slower, requires extra API calls). If False, skip message
+            fetching for faster graph generation.
+        fetch_comments: If True, fetch detailed inline comments per
+            change (requires individual API calls, can be slow for
+            large series). Implies fetch_details.
 
     Returns a dict ready to be embedded as JSON in the HTML template.
     """
+    if fetch_comments:
+        fetch_details = True
     # 1. Fetch related changes
     if progress:
         print("Fetching related changes...", end="", file=sys.stderr, flush=True)
@@ -206,6 +274,7 @@ def build_graph(
               end="", file=sys.stderr, flush=True)
 
     labels_by_cn: dict[int, dict[str, Any]] = {}  # change_number -> review info
+    comment_count_by_cn: dict[int, int] = {}  # change_number -> unresolved count
 
     for batch_idx, batch in enumerate(batches):
         query = " OR ".join(f"change:{cn}" for cn in batch)
@@ -221,6 +290,10 @@ def build_graph(
                     commit_to_change_ps[rev_hash] = (cn, ps)
                 # Parse labels into compact review info
                 labels_by_cn[cn] = _parse_labels(change.get("labels", {}))
+                # Comment count (free from batch query)
+                comment_count_by_cn[cn] = change.get(
+                    "unresolved_comment_count", 0
+                )
         except Exception as e:
             if progress:
                 print(f" (batch {batch_idx} error: {e})", end="",
@@ -229,18 +302,24 @@ def build_graph(
     if progress:
         print(f" {len(commit_to_change_ps)} commits mapped.", file=sys.stderr)
 
-    # 3b. Attach review info to nodes
+    # 3b. Attach review info to nodes (with comment count from batch query)
     for cn, node in nodes.items():
-        node["review"] = labels_by_cn.get(cn, _empty_review())
+        review = labels_by_cn.get(cn, _empty_review())
+        review["unresolved_count"] = comment_count_by_cn.get(cn, 0)
+        node["review"] = review
 
-    # 3c. Fetch messages for non-abandoned changes to extract Jenkins/Maloo links
+    # 3c. Fetch details (CI links + comments) for non-abandoned changes
     active_cns = sorted(
         cn for cn, node in nodes.items() if node["status"] != "ABANDONED"
     )
     if fetch_details and active_cns:
         if progress:
-            print(f"Fetching CI links ({len(active_cns)} active changes)...",
-                  end="", file=sys.stderr, flush=True)
+            print(
+                f"Fetching details ({len(active_cns)} active changes)...",
+                end="", file=sys.stderr, flush=True,
+            )
+
+        # 3c-i. Batch-fetch messages for CI links
         msg_batches = [
             active_cns[i:i + 20] for i in range(0, len(active_cns), 20)
         ]
@@ -266,6 +345,26 @@ def build_graph(
                     )
             except Exception:
                 pass
+
+        # 3c-ii. Fetch comments per change (opt-in, slow)
+        # Groups comments into threads and checks if the last comment
+        # in each thread is unresolved — matching Gerrit's
+        # unresolved_comment_count (which counts unresolved threads).
+        if fetch_comments:
+            if progress:
+                print(
+                    f"\nFetching comments ({len(active_cns)} changes)...",
+                    end="", file=sys.stderr, flush=True,
+                )
+            for cn in active_cns:
+                try:
+                    raw = client.rest.get(f"/changes/{cn}/comments")
+                    nodes[cn]["review"]["unresolved_comments"] = (
+                        _extract_unresolved_threads(raw)
+                    )
+                except Exception:
+                    pass
+
         if progress:
             print(" done.", file=sys.stderr)
 
@@ -983,7 +1082,10 @@ function renderGraph() {
             } else {
                 crStr = 'none';
             }
-            reviewLine = `\n${vStr}| CR: ${crStr}`;
+            // Comment count
+            const cc = rv.unresolved_count || 0;
+            const ccStr = cc > 0 ? ` | \u{1f4ac}${cc}` : '';
+            reviewLine = `\n${vStr}| CR: ${crStr}${ccStr}`;
         }
 
         let label = `#${node.id}\n${shortSubject}${reviewLine}`;
@@ -1178,7 +1280,45 @@ function renderReviewPanel(node) {
     <div class="field">
         <div class="fl">Code Review</div>
         <div class="fv">${crHtml}</div>
-    </div>`;
+    </div>
+    ${renderCommentsPanel(node)}`;
+}
+
+function renderCommentsPanel(node) {
+    const rv = node.review || {};
+    const count = rv.unresolved_count || 0;
+    const comments = rv.unresolved_comments || [];
+    if (count === 0 && comments.length === 0) return '';
+
+    let html = `<div class="field">
+        <div class="fl">Unresolved Comments (${count})</div>
+        <div class="fv">`;
+
+    if (comments.length === 0) {
+        html += `<div style="color:#8b949e;font-size:13px">${count} unresolved (details not fetched)</div>`;
+    } else {
+        const currentPs = node.current_patchset;
+        html += '<div style="max-height:300px;overflow-y:auto">';
+        for (const c of comments) {
+            const stale = c.patch_set < currentPs
+                ? `<span style="color:#d29922;font-size:10px"> ps${c.patch_set}</span>`
+                : '';
+            const file = c.file === '/COMMIT_MSG' ? 'Commit Message' : c.file;
+            // Link to the comment on Gerrit
+            const commentUrl = `${node.url}/comment/${c.id}/`;
+            html += `<div style="margin:4px 0;padding:5px 8px;background:var(--bg-inset);border-radius:4px;border-left:2px solid var(--accent);font-size:12px">
+                <div>
+                    <a href="${commentUrl}" target="_blank" style="color:var(--accent);font-weight:600;font-size:11px">${esc(file)}:${c.line}</a>${stale}
+                    <span style="color:var(--text-muted);font-size:11px"> — ${esc(c.author)}</span>
+                </div>
+                <div style="color:var(--text);margin-top:2px;white-space:pre-wrap;word-break:break-word">${esc(c.message)}</div>
+            </div>`;
+        }
+        html += '</div>';
+    }
+
+    html += '</div></div>';
+    return html;
 }
 
 // ─── INFO PANEL ───
