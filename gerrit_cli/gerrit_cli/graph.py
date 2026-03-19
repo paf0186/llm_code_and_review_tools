@@ -950,7 +950,6 @@ function getColors() {
         // Review health: overrides STATUS.NEW color for active patches
         REVIEW_GOOD: { bg: '#238636', border: '#3fb950', font: '#fff' },
         REVIEW_BAD:  { bg: '#b62324', border: '#f85149', font: '#fff' },
-        ANCHOR: { bg: '#f85149', border: '#ff7b72', font: '#fff' },
         DIM: light
             ? { bg: '#eaeef2', border: '#d0d7de', font: '#8b949e' }
             : { bg: '#161b22', border: '#21262d', font: '#484f58' },
@@ -1024,13 +1023,7 @@ function renderGraph() {
 
         const C = getColors();
         let colors;
-        if (isAnchor) {
-            // Anchor gets review health coloring too
-            const health = reviewHealth(node);
-            if (health === 'bad') colors = C.REVIEW_BAD;
-            else if (health === 'good') colors = C.REVIEW_GOOD;
-            else colors = C.ANCHOR;
-        } else if (isBase) {
+        if (isBase) {
             colors = C.DIM;
         } else if (node.status === 'NEW') {
             const health = reviewHealth(node);
