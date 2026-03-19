@@ -27,6 +27,65 @@ from urllib.parse import quote
 from .client import GerritCommentsClient
 
 
+def _empty_review() -> dict[str, Any]:
+    """Return an empty review info structure."""
+    return {
+        "verified_votes": [],    # [{name, value}] — all non-zero Verified votes
+        "verified_pass": False,  # at least one +1, no -1s
+        "verified_fail": False,  # any -1
+        "cr_votes": [],          # [{name, value}] — all non-zero Code-Review votes
+        "cr_approved": False,    # has +2
+        "cr_rejected": False,    # has -2
+        "cr_rejected_by": "",
+        "cr_veto": False,        # any CR vote <= -1
+    }
+
+
+def _parse_labels(labels: dict[str, Any]) -> dict[str, Any]:
+    """Parse Gerrit DETAILED_LABELS into compact review info."""
+    result = _empty_review()
+
+    # Verified label — track ALL voters, not just Jenkins/Maloo
+    verified = labels.get("Verified", {})
+    has_plus = False
+    has_minus = False
+    for vote in verified.get("all", []):
+        val = vote.get("value", 0)
+        if val == 0:
+            continue
+        name = vote.get("name", f"account:{vote.get('_account_id', '?')}")
+        result["verified_votes"].append({"name": name, "value": val})
+        if val > 0:
+            has_plus = True
+        if val < 0:
+            has_minus = True
+
+    result["verified_pass"] = has_plus and not has_minus
+    result["verified_fail"] = has_minus
+
+    # Code-Review label
+    cr = labels.get("Code-Review", {})
+    for vote in cr.get("all", []):
+        val = vote.get("value", 0)
+        if val == 0:
+            continue
+        name = vote.get("name", f"account:{vote.get('_account_id', '?')}")
+        result["cr_votes"].append({"name": name, "value": val})
+        if val <= -1:
+            result["cr_veto"] = True
+
+    if cr.get("approved"):
+        result["cr_approved"] = True
+    if cr.get("rejected"):
+        result["cr_rejected"] = True
+        result["cr_rejected_by"] = cr["rejected"].get("name", "")
+
+    # Sort CR votes: negative first (most concerning), then positive
+    result["cr_votes"].sort(key=lambda v: (v["value"] > 0, abs(v["value"])))
+
+    return result
+
+
 def build_graph(
     client: GerritCommentsClient,
     change_number: int,
@@ -97,17 +156,22 @@ def build_graph(
         print(f"Fetching revision history ({len(all_cns)} changes)...",
               end="", file=sys.stderr, flush=True)
 
+    labels_by_cn: dict[int, dict[str, Any]] = {}  # change_number -> review info
+
     for batch_idx, batch in enumerate(batches):
         query = " OR ".join(f"change:{cn}" for cn in batch)
         try:
             result = client.rest.get(
-                f"/changes/?q={quote(query, safe=':+ ')}&o=ALL_REVISIONS&n=500"
+                f"/changes/?q={quote(query, safe=':+ ')}"
+                f"&o=ALL_REVISIONS&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&n=500"
             )
             for change in result:
                 cn = change.get("_number", 0)
                 for rev_hash, rev_info in change.get("revisions", {}).items():
                     ps = rev_info.get("_number", 0)
                     commit_to_change_ps[rev_hash] = (cn, ps)
+                # Parse labels into compact review info
+                labels_by_cn[cn] = _parse_labels(change.get("labels", {}))
         except Exception as e:
             if progress:
                 print(f" (batch {batch_idx} error: {e})", end="",
@@ -115,6 +179,10 @@ def build_graph(
 
     if progress:
         print(f" {len(commit_to_change_ps)} commits mapped.", file=sys.stderr)
+
+    # 3b. Attach review info to nodes
+    for cn, node in nodes.items():
+        node["review"] = labels_by_cn.get(cn, _empty_review())
 
     # 4. Build edges by resolving parent commits
     edges: list[dict[str, Any]] = []
@@ -668,7 +736,7 @@ const network = new vis.Network(container, { nodes: nodesDS, edges: edgesDS }, {
     nodes: {
         shape: 'box',
         margin: { top: 6, right: 10, bottom: 6, left: 10 },
-        font: { face: 'monospace', size: 12, color: '#fff', multi: 'html' },
+        font: { face: 'monospace', size: 12, color: '#fff', multi: false },
         borderWidth: 2,
         shadow: false,
     },
@@ -678,6 +746,7 @@ const network = new vis.Network(container, { nodes: nodesDS, edges: edgesDS }, {
         smooth: { type: 'cubicBezier', forceDirection: 'vertical', roundness: 0.4 },
     },
 });
+
 
 // ─── COLORS (theme-aware) ───
 function isLight() { return document.body.classList.contains('light'); }
@@ -691,6 +760,9 @@ function getColors() {
                 ? { bg: '#afb8c1', border: '#8b949e', font: '#24292f' }
                 : { bg: '#30363d', border: '#484f58', font: '#8b949e' },
         },
+        // Review health: overrides STATUS.NEW color for active patches
+        REVIEW_GOOD: { bg: '#238636', border: '#3fb950', font: '#fff' },
+        REVIEW_BAD:  { bg: '#b62324', border: '#f85149', font: '#fff' },
         ANCHOR: { bg: '#f85149', border: '#ff7b72', font: '#fff' },
         DIM: light
             ? { bg: '#eaeef2', border: '#d0d7de', font: '#8b949e' }
@@ -706,6 +778,31 @@ function getColors() {
         edgeFontStale: '#d29922',
         edgeStroke: light ? '#ffffff' : '#0d1117',
     };
+}
+
+// ─── REVIEW HEALTH ───
+// Returns 'good', 'bad', or 'pending' based on review state.
+// Good: all verified +1 (no -1s) AND at least 2 non-author CR +1s
+// Bad: any verified -1 OR any CR vote <= -1 (veto)
+// Pending: everything else (undecided)
+function reviewHealth(node) {
+    if (node.status !== 'NEW') return 'pending';
+    const rv = node.review || {};
+
+    // Bad: any verified failure or CR veto
+    if (rv.verified_fail) return 'bad';
+    if (rv.cr_veto) return 'bad';
+
+    // Good: verified passed AND >= 2 non-author CR +1s
+    if (rv.verified_pass) {
+        const author = node.author || '';
+        const nonAuthorPlus = (rv.cr_votes || []).filter(
+            v => v.value > 0 && v.name !== author
+        ).length;
+        if (nonAuthorPlus >= 2) return 'good';
+    }
+
+    return 'pending';
 }
 
 // ─── RENDER ───
@@ -741,9 +838,18 @@ function renderGraph() {
         const C = getColors();
         let colors;
         if (isAnchor) {
-            colors = C.ANCHOR;
+            // Anchor gets review health coloring too
+            const health = reviewHealth(node);
+            if (health === 'bad') colors = C.REVIEW_BAD;
+            else if (health === 'good') colors = C.REVIEW_GOOD;
+            else colors = C.ANCHOR;
         } else if (isBase) {
             colors = C.DIM;
+        } else if (node.status === 'NEW') {
+            const health = reviewHealth(node);
+            if (health === 'bad') colors = C.REVIEW_BAD;
+            else if (health === 'good') colors = C.REVIEW_GOOD;
+            else colors = C.STATUS.NEW;
         } else {
             colors = C.STATUS[node.status] || C.STATUS.NEW;
         }
@@ -751,11 +857,51 @@ function renderGraph() {
         // If not on main chain and above anchor, slightly dim
         const opacity = (isAbove && !isMain && !isAnchor) ? 0.7 : 1.0;
 
-        let label = `#${node.id}`;
         const shortSubject = node.subject.length > 50
             ? node.subject.substring(0, 47) + '...'
             : node.subject;
-        label += `\n${shortSubject}`;
+
+        // Build review status line
+        let reviewLine = '';
+        if (node.status !== 'ABANDONED' && node.status !== 'MERGED') {
+            const rv = node.review || {};
+
+            // Verified summary: show each voter's status
+            const vVotes = rv.verified_votes || [];
+            let vStr = '';
+            if (vVotes.length === 0) {
+                vStr = 'V:- ';
+            } else {
+                vStr = vVotes.map(v => {
+                    // Abbreviate known names
+                    let n = v.name;
+                    if (/jenkins/i.test(n)) n = 'J';
+                    else if (/maloo/i.test(n)) n = 'M';
+                    else n = n.split(' ')[0].substring(0, 6);
+                    return n + ':' + (v.value > 0 ? '\u2713' : '\u2717');
+                }).join(' ') + ' ';
+            }
+
+            // CR summary
+            const crPlus = (rv.cr_votes || []).filter(v => v.value > 0).length;
+            const crMinus = (rv.cr_votes || []).filter(v => v.value < 0).length;
+            let crStr = '';
+            if (rv.cr_veto) {
+                crStr = '\u2717 VETO';
+            } else if (rv.cr_approved) {
+                crStr = '\u2713 +2';
+            } else if (crPlus > 0 || crMinus > 0) {
+                const parts = [];
+                if (crPlus > 0) parts.push(crPlus + '\u00d7(+1)');
+                if (crMinus > 0) parts.push(crMinus + '\u00d7(-1)');
+                crStr = parts.join(' ');
+            } else {
+                crStr = 'none';
+            }
+            reviewLine = `\n${vStr}| CR: ${crStr}`;
+        }
+
+        let label = `#${node.id}\n${shortSubject}${reviewLine}`;
 
         visNodes.push({
             id: id,
@@ -770,9 +916,8 @@ function renderGraph() {
             },
             font: {
                 color: colors.font,
-                size: isMain ? 13 : 11,
+                size: 12,
                 face: 'monospace',
-                multi: false,
             },
             borderWidth: isAnchor ? 4 : (isMain ? 2 : 1),
             opacity: opacity,
@@ -857,6 +1002,88 @@ function renderGraph() {
     }, 50);
 }
 
+// ─── REVIEW STATUS RENDERING ───
+function reviewIcon(val) {
+    if (val > 0) return '<span style="color:#3fb950;font-weight:700">\u2713</span>';
+    if (val < 0) return '<span style="color:#f85149;font-weight:700">\u2717</span>';
+    return '<span style="color:#8b949e">—</span>';
+}
+
+function renderReviewPanel(node) {
+    const rv = node.review || {};
+    if (node.status === 'ABANDONED') return '';
+    if (node.status === 'MERGED') {
+        return `<div class="field">
+            <div class="fl">Review</div>
+            <div class="fv" style="color:#3fb950">Merged</div>
+        </div>`;
+    }
+
+    // Health summary
+    const health = reviewHealth(node);
+    const healthBadge = health === 'good'
+        ? '<span style="color:#3fb950;font-weight:700">\u2713 Ready</span>'
+        : health === 'bad'
+        ? '<span style="color:#f85149;font-weight:700">\u2717 Issues</span>'
+        : '<span style="color:#8b949e">Pending</span>';
+
+    // Verified section — show ALL voters
+    const vVotes = rv.verified_votes || [];
+    let verifiedHtml = '';
+    if (vVotes.length === 0) {
+        verifiedHtml = '<div style="color:#8b949e;font-size:13px">No verified votes</div>';
+    } else {
+        verifiedHtml = '<div style="margin:2px 0">';
+        for (const v of vVotes) {
+            verifiedHtml += `<div style="font-size:13px;margin:1px 0">
+                ${reviewIcon(v.value)}
+                <span style="color:var(--text)">${esc(v.name)}</span>
+            </div>`;
+        }
+        verifiedHtml += '</div>';
+    }
+
+    // Code-Review section
+    const crVotes = rv.cr_votes || [];
+    const author = node.author || '';
+    let crHtml = '';
+    if (rv.cr_rejected) {
+        crHtml = `<div style="color:#f85149;font-weight:700;margin:2px 0">\u2717 VETOED by ${esc(rv.cr_rejected_by)}</div>`;
+    } else if (rv.cr_approved) {
+        crHtml = `<div style="color:#3fb950;font-weight:700;margin:2px 0">\u2713 Approved (+2)</div>`;
+    }
+
+    if (crVotes.length > 0) {
+        crHtml += '<div style="margin-top:4px">';
+        for (const v of crVotes) {
+            const color = v.value > 0 ? '#3fb950' : '#f85149';
+            const sign = v.value > 0 ? '+' : '';
+            const isAuthor = v.name === author;
+            const authorTag = isAuthor ? ' <span style="color:var(--text-muted);font-size:11px">(author)</span>' : '';
+            crHtml += `<div style="font-size:13px;margin:1px 0${isAuthor ? ';opacity:0.6' : ''}">
+                <span style="color:${color};font-weight:600">${sign}${v.value}</span>
+                <span style="color:var(--text)">${esc(v.name)}</span>${authorTag}
+            </div>`;
+        }
+        crHtml += '</div>';
+    } else if (!rv.cr_approved && !rv.cr_rejected) {
+        crHtml = '<div style="color:#8b949e;font-size:13px">No reviews yet</div>';
+    }
+
+    return `<div class="field">
+        <div class="fl">Review Health</div>
+        <div class="fv">${healthBadge}</div>
+    </div>
+    <div class="field">
+        <div class="fl">Verified</div>
+        <div class="fv">${verifiedHtml}</div>
+    </div>
+    <div class="field">
+        <div class="fl">Code Review</div>
+        <div class="fv">${crHtml}</div>
+    </div>`;
+}
+
 // ─── INFO PANEL ───
 function showNodeInfo(id) {
     const node = nodeMap[id];
@@ -931,6 +1158,7 @@ function showNodeInfo(id) {
             <div class="fl">Ticket</div>
             <div class="fv">${node.ticket || '—'}</div>
         </div>
+        ${renderReviewPanel(node)}
         ${staleIncoming.length > 0 ? `
         <div class="field">
             <div class="fl">Stale dependency</div>
