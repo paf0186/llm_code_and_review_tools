@@ -86,34 +86,53 @@ def _extract_ci_links(
     return {"jenkins_url": jenkins_url, "maloo_url": maloo_url}
 
 
-def _extract_unresolved_threads(
-    raw_comments: dict[str, list[dict[str, Any]]],
+def _extract_unresolved_comments(
+    client: Any,
+    cn: int,
+    expected_count: int = -1,
 ) -> list[dict[str, Any]]:
-    """Extract unresolved comment threads from /changes/{id}/comments.
+    """Extract unresolved comments using multi-source heuristics.
 
-    Groups comments into threads using in_reply_to, then checks if the
-    last comment in each thread is unresolved (matching Gerrit's
-    unresolved_comment_count which counts unresolved threads).
+    Gerrit's unresolved_comment_count is authoritative but opaque — its
+    resolution logic (code-change-based, porting) isn't fully exposed via
+    any single API, and the per-comment `unresolved` field is unreliable
+    (especially for PATCHSET_LEVEL comments posted with votes).
 
-    Returns one entry per unresolved thread (the root comment).
+    Strategy:
+    1. Raw thread analysis: threads where last comment has unresolved=True
+    2. Subtract threads that ported_comments confirms as resolved
+    3. If still short of expected_count, supplement with recent human
+       comments on the current patchset (Gerrit may track these as
+       unresolved despite the API field saying False)
+
+    Results are capped at expected_count (from unresolved_comment_count).
     """
-    # Flatten all comments with file info
+    try:
+        raw = client.rest.get(f"/changes/{cn}/comments")
+    except Exception:
+        return []
+
+    # Get current patchset number
+    current_ps = 0
+    try:
+        detail = client.rest.get(f"/changes/{cn}?o=CURRENT_REVISION")
+        for rev_info in detail.get("revisions", {}).values():
+            current_ps = rev_info.get("_number", 0)
+    except Exception:
+        pass
+
+    # Flatten all comments with file path
     all_comments: list[dict[str, Any]] = []
-    for filepath, file_comments in raw_comments.items():
+    for filepath, file_comments in raw.items():
         for c in file_comments:
             c["_file"] = filepath
             all_comments.append(c)
 
-    # Index by ID
-    by_id: dict[str, dict[str, Any]] = {}
-    for c in all_comments:
-        by_id[c.get("id", "")] = c
+    by_id = {c.get("id", ""): c for c in all_comments}
 
-    # Group into threads: find root comments (no in_reply_to)
-    # and collect replies
-    threads: dict[str, list[dict[str, Any]]] = {}  # root_id -> [comments]
+    # Build threads: group by root comment
+    threads: dict[str, list[dict[str, Any]]] = {}
     for c in all_comments:
-        # Walk up to find root
         root = c
         visited: set[str] = set()
         while root.get("in_reply_to") and root["in_reply_to"] in by_id:
@@ -121,28 +140,109 @@ def _extract_unresolved_threads(
                 break
             visited.add(root.get("id", ""))
             root = by_id[root["in_reply_to"]]
-        root_id = root.get("id", "")
-        threads.setdefault(root_id, []).append(c)
+        threads.setdefault(root.get("id", ""), []).append(c)
 
-    # Sort each thread by date, check if last comment is unresolved
-    items: list[dict[str, Any]] = []
-    for root_id, thread_comments in threads.items():
-        thread_comments.sort(key=lambda x: x.get("updated", ""))
-        last = thread_comments[-1]
-        if not last.get("unresolved", False):
-            continue
-        # Thread is unresolved — show the root comment
-        root = by_id.get(root_id, last)
-        items.append({
+    bot_names = {"wc-checkpatch", "Lustre Gerrit Janitor", "jenkins",
+                 "Maloo", "Autotest",
+                 "Misc Code Checks Robot (Gatekeeper helper)"}
+
+    def _make_item(root: dict[str, Any]) -> dict[str, Any]:
+        return {
             "file": root.get("_file", ""),
             "line": root.get("line", 0),
             "author": root.get("author", {}).get("name", "?"),
             "message": root.get("message", "")[:200],
             "patch_set": root.get("patch_set", 0),
             "id": root.get("id", ""),
-        })
+        }
 
-    items.sort(key=lambda x: (x["file"], x["line"]))
+    # Primary: raw thread analysis — threads where last comment has
+    # unresolved=True. Ranked: current-patchset first, then older.
+    primary: list[tuple[int, dict[str, Any]]] = []
+    seen_root_ids: set[str] = set()
+
+    for root_id, thread_comments in threads.items():
+        thread_comments.sort(key=lambda x: x.get("updated", ""))
+        last = thread_comments[-1]
+        if not last.get("unresolved", False):
+            continue
+
+        root = by_id.get(root_id, thread_comments[0])
+        seen_root_ids.add(root_id)
+        max_ps = max(c.get("patch_set", 0) for c in thread_comments)
+        rank = 0 if max_ps == current_ps else 1
+        primary.append((rank, _make_item(root)))
+
+    primary.sort(key=lambda x: (x[0], x[1]["file"], x[1]["line"]))
+    items = [p[1] for p in primary]
+
+    # When raw analysis finds MORE candidates than expected_count,
+    # use ported_comments to identify which old-patchset threads
+    # Gerrit considers resolved (via code changes). Remove those
+    # to get closer to the true set. Only applied when we have
+    # excess — when raw matches or undershoots expected_count,
+    # ported is too unreliable (it sometimes resolves threads
+    # that Gerrit still counts as unresolved).
+    if expected_count >= 0 and len(items) > expected_count:
+        ported_resolved_ids: set[str] = set()
+        try:
+            ported = client.rest.get(
+                f"/changes/{cn}/revisions/current/ported_comments"
+            )
+            ported_flat: list[dict[str, Any]] = []
+            for filepath, file_comments in ported.items():
+                for c in file_comments:
+                    c["_file"] = filepath
+                    ported_flat.append(c)
+
+            ported_by_id = {c.get("id", ""): c for c in ported_flat}
+            ported_threads: dict[str, list[dict[str, Any]]] = {}
+            for c in ported_flat:
+                root = c
+                visited: set[str] = set()
+                while (root.get("in_reply_to")
+                       and root["in_reply_to"] in ported_by_id):
+                    if root["in_reply_to"] in visited:
+                        break
+                    visited.add(root.get("id", ""))
+                    root = ported_by_id[root["in_reply_to"]]
+                ported_threads.setdefault(
+                    root.get("id", ""), []
+                ).append(c)
+
+            for root_id, thread in ported_threads.items():
+                thread.sort(key=lambda x: x.get("updated", ""))
+                if not thread[-1].get("unresolved", False):
+                    ported_resolved_ids.add(root_id)
+        except Exception:
+            pass
+
+        if ported_resolved_ids:
+            items = [it for it in items
+                     if it["id"] not in ported_resolved_ids]
+
+    # Fallback: when raw analysis (after optional ported filtering)
+    # finds ZERO candidates but expected_count > 0, supplement with
+    # recent current-patchset human comments. Handles a Gerrit API
+    # bug where PATCHSET_LEVEL comments posted with votes have
+    # unresolved=False in the API but are counted as unresolved.
+    if expected_count > 0 and len(items) == 0:
+        for root_id, thread_comments in threads.items():
+            if root_id in seen_root_ids:
+                continue
+            root = by_id.get(root_id, thread_comments[0])
+            if root.get("patch_set", 0) != current_ps:
+                continue
+            author = root.get("author", {}).get("name", "")
+            if author in bot_names:
+                continue
+            items.append(_make_item(root))
+        items.sort(key=lambda x: x.get("id", ""), reverse=True)
+
+    # Cap at expected_count if provided
+    if expected_count >= 0:
+        items = items[:expected_count]
+
     return items
 
 
@@ -347,9 +447,8 @@ def build_graph(
                 pass
 
         # 3c-ii. Fetch comments per change (opt-in, slow)
-        # Groups comments into threads and checks if the last comment
-        # in each thread is unresolved — matching Gerrit's
-        # unresolved_comment_count (which counts unresolved threads).
+        # Fetch detailed comments per change — uses confidence-ranked
+        # thread analysis capped at unresolved_comment_count.
         if fetch_comments:
             if progress:
                 print(
@@ -358,9 +457,9 @@ def build_graph(
                 )
             for cn in active_cns:
                 try:
-                    raw = client.rest.get(f"/changes/{cn}/comments")
+                    expected = nodes[cn]["review"].get("unresolved_count", -1)
                     nodes[cn]["review"]["unresolved_comments"] = (
-                        _extract_unresolved_threads(raw)
+                        _extract_unresolved_comments(client, cn, expected)
                     )
                 except Exception:
                     pass
