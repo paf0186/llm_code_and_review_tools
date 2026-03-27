@@ -36,9 +36,12 @@ def _load_env_file() -> None:
     ]
 
     for env_path in env_locations:
-        if env_path.exists():
-            load_dotenv(env_path)
-            return
+        try:
+            if env_path.exists():
+                load_dotenv(env_path)
+                return
+        except OSError:
+            continue  # host down, NFS stale, etc.
 
     # No .env file found, will use environment variables or JSON config
 

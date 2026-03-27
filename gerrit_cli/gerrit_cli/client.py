@@ -32,8 +32,11 @@ def _load_env_file():
 
     # Load in priority order (lowest first); each overrides the previous
     for env_path in env_locations:
-        if env_path.exists():
-            load_dotenv(env_path, override=True)
+        try:
+            if env_path.exists():
+                load_dotenv(env_path, override=True)
+        except OSError:
+            continue  # host down, NFS stale, etc.
 
 
 # Load .env file when module is imported
