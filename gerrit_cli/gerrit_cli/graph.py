@@ -622,11 +622,31 @@ body.light .badge-abandoned { background: #8b949e; color: #fff; }
     background: var(--btn-bg); color: var(--text); border: 1px solid var(--btn-border);
     padding: 3px 10px; border-radius: 6px; cursor: pointer; font-size: 12px;
 }
-.controls button:hover { background: var(--bg-hover); border-color: var(--accent); }
+.controls button:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 .controls button.primary {
     background: #1f6feb; color: #fff; border-color: #1f6feb;
 }
 .controls button.primary:hover { background: #388bfd; }
+
+/* Help overlay */
+.help-overlay {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center;
+}
+.help-overlay.hidden { display: none; }
+.help-box {
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px 28px; max-width: 420px; width: 90%;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.help-box h3 { font-size: 15px; color: var(--accent); margin-bottom: 12px; }
+.help-box table { width: 100%; border-collapse: collapse; }
+.help-box td { padding: 3px 0; font-size: 13px; }
+.help-box td:first-child {
+    font-family: monospace; font-weight: 600; color: var(--accent);
+    white-space: nowrap; padding-right: 16px; width: 1%;
+}
+.help-box td:last-child { color: var(--text); }
 
 .legend {
     display: flex; gap: 10px; font-size: 11px; color: var(--text-muted);
@@ -637,9 +657,51 @@ body.light .badge-abandoned { background: #8b949e; color: #fff; }
     width: 10px; height: 10px; border-radius: 2px; display: inline-block;
 }
 
-.main { display: flex; flex: 1; overflow: hidden; }
+/* vis-network navigation button overrides — only re-tint, keep default sprites */
+div.vis-network div.vis-navigation div.vis-button {
+    filter: saturate(0) brightness(1.6);
+    opacity: 0.7;
+}
+div.vis-network div.vis-navigation div.vis-button:hover {
+    filter: saturate(0) brightness(2);
+    opacity: 1;
+}
+body.light div.vis-network div.vis-navigation div.vis-button {
+    filter: saturate(0) brightness(0.8);
+    opacity: 0.6;
+}
+body.light div.vis-network div.vis-navigation div.vis-button:hover {
+    filter: saturate(0) brightness(0.4);
+    opacity: 1;
+}
+
+.main { display: flex; flex: 1; overflow: hidden; position: relative; }
 
 #graph { flex: 1; background: var(--bg); }
+
+/* Search bar */
+.search-bar {
+    position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    z-index: 100; display: flex; align-items: center; gap: 6px;
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 4px 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+.search-bar.hidden { display: none; }
+.search-bar input {
+    background: var(--bg-inset); color: var(--text); border: 1px solid var(--border);
+    border-radius: 4px; padding: 4px 8px; font-size: 13px; width: 280px;
+    outline: none; font-family: inherit;
+}
+.search-bar input:focus { border-color: var(--accent); }
+.search-bar .search-info {
+    font-size: 12px; color: var(--text-muted); white-space: nowrap; min-width: 70px;
+    text-align: center;
+}
+.search-bar button {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    font-size: 16px; padding: 2px 4px; line-height: 1;
+}
+.search-bar button:hover { color: var(--text); }
 
 .panel {
     width: 480px; min-width: 280px; max-width: 80vw;
@@ -713,11 +775,43 @@ body.light .sbadge-ABANDONED { background: #8b949e; color: #fff; }
     <button class="primary" id="btn-reset">Reset</button>
     <button id="btn-fit">Fit</button>
     <button id="btn-focus">Focus</button>
+    <button id="btn-search">Search</button>
     <button id="btn-panel">Panel</button>
     <button id="btn-theme">Light</button>
+    <button id="btn-help">?</button>
+</div>
+
+<div class="help-overlay hidden" id="help-overlay" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div class="help-box">
+        <h3>Keyboard Shortcuts</h3>
+        <table>
+            <tr><td>Ctrl+F</td><td>Search nodes</td></tr>
+            <tr><td>F</td><td>Fit graph to view</td></tr>
+            <tr><td>Z</td><td>Focus selected node / anchor</td></tr>
+            <tr><td>R</td><td>Reset to original anchor</td></tr>
+            <tr><td>+ / -</td><td>Zoom in / out</td></tr>
+            <tr><td>Esc</td><td>Deselect / close search</td></tr>
+            <tr><td>?</td><td>Toggle this help</td></tr>
+        </table>
+        <div style="margin-top:12px;font-size:12px;color:var(--text-muted)">
+            Click a node to see details. Double-click to open in Gerrit.
+        </div>
+        <div style="text-align:right;margin-top:10px">
+            <button onclick="document.getElementById('help-overlay').classList.add('hidden')"
+                style="background:var(--btn-bg);color:var(--text);border:1px solid var(--btn-border);
+                padding:4px 14px;border-radius:6px;cursor:pointer;font-size:12px">Close</button>
+        </div>
+    </div>
 </div>
 
 <div class="main">
+    <div class="search-bar hidden" id="search-bar">
+        <input type="text" id="search-input" placeholder="Search nodes...">
+        <span class="search-info" id="search-info"></span>
+        <button id="search-prev" title="Previous (Shift+Enter)">&#x25B2;</button>
+        <button id="search-next" title="Next (Enter)">&#x25BC;</button>
+        <button id="search-close" title="Close (Esc)">&#x2715;</button>
+    </div>
     <div id="graph"></div>
     <div class="panel" id="panel">
         <div class="panel-drag" id="panel-drag"></div>
@@ -725,7 +819,7 @@ body.light .sbadge-ABANDONED { background: #8b949e; color: #fff; }
         <div id="info">
             <p style="color:#8b949e">Click a node to see details and its chain.<br><br>
             Double-click to open in Gerrit.<br><br>
-            <b>Keyboard:</b> F = fit, Z = focus, R = reset</p>
+            <b>Ctrl+F</b> to search &nbsp; <b>?</b> for all shortcuts</p>
         </div>
     </div>
 </div>
@@ -1616,7 +1710,7 @@ function showDefaultInfo() {
     document.getElementById('info').innerHTML = `
         <p style="color:#8b949e">Click a node to see details.<br><br>
         Double-click to open in Gerrit.<br><br>
-        <b>Keyboard:</b> F = fit, Z = focus, R = reset</p>`;
+        <b>Ctrl+F</b> to search &nbsp; <b>?</b> for all shortcuts</p>`;
 }
 
 function esc(s) {
@@ -1687,9 +1781,13 @@ document.getElementById('btn-focus').addEventListener('click', function() {
         animation: { duration: 400, easingFunction: 'easeInOutQuad' },
     });
 });
+document.getElementById('btn-search').addEventListener('click', openSearch);
 document.getElementById('btn-panel').addEventListener('click', function() {
     document.getElementById('panel').classList.toggle('hidden');
     setTimeout(() => network.redraw(), 100);
+});
+document.getElementById('btn-help').addEventListener('click', function() {
+    document.getElementById('help-overlay').classList.toggle('hidden');
 });
 document.getElementById('btn-theme').addEventListener('click', function() {
     document.body.classList.toggle('light');
@@ -1701,6 +1799,12 @@ document.getElementById('btn-theme').addEventListener('click', function() {
 
 // Keyboard
 document.addEventListener('keydown', function(e) {
+    // Ctrl/Cmd+F opens search
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        openSearch();
+        return;
+    }
     if (e.target.tagName === 'INPUT') return;
     if (e.key === 'f' || e.key === 'F') {
         network.fit({ animation: { duration: 400, easingFunction: 'easeInOutQuad' } });
@@ -1714,9 +1818,22 @@ document.addEventListener('keydown', function(e) {
             scale: 1.5,
             animation: { duration: 400, easingFunction: 'easeInOutQuad' },
         });
+    } else if (e.key === '+' || e.key === '=') {
+        const scale = network.getScale();
+        network.moveTo({ scale: scale * 1.3, animation: { duration: 200, easingFunction: 'easeInOutQuad' } });
+    } else if (e.key === '-') {
+        const scale = network.getScale();
+        network.moveTo({ scale: scale / 1.3, animation: { duration: 200, easingFunction: 'easeInOutQuad' } });
+    } else if (e.key === '?') {
+        document.getElementById('help-overlay').classList.toggle('hidden');
     } else if (e.key === 'Escape') {
-        network.unselectAll();
-        showDefaultInfo();
+        const help = document.getElementById('help-overlay');
+        if (!help.classList.contains('hidden')) {
+            help.classList.add('hidden');
+        } else {
+            network.unselectAll();
+            showDefaultInfo();
+        }
     }
 });
 
@@ -1743,6 +1860,139 @@ document.addEventListener('keydown', function(e) {
         }
     });
 })();
+
+// ─── SEARCH ───
+function getNodeSearchText(node) {
+    const parts = [
+        '#' + node.id,
+        node.subject,
+        node.author,
+        node.status,
+        node.ticket || '',
+        node.topic || '',
+        (node.hashtags || []).join(' '),
+        'ps' + node.current_patchset,
+    ];
+    const rv = node.review || {};
+    (rv.cr_votes || []).forEach(v => parts.push(v.name));
+    (rv.verified_votes || []).forEach(v => parts.push(v.name));
+    if (rv.cr_rejected_by) parts.push(rv.cr_rejected_by);
+    (rv.unresolved_comments || []).forEach(c => {
+        parts.push(c.file || '', c.author || '', c.message || '');
+    });
+    return parts.join('\n').toLowerCase();
+}
+
+// Pre-build search index
+const searchIndex = {};
+G.nodes.forEach(n => { searchIndex[n.id] = getNodeSearchText(n); });
+
+let searchMatches = [];
+let searchIdx = -1;
+
+function searchNodes(query) {
+    if (!query) { searchMatches = []; searchIdx = -1; return; }
+    const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+    // Only match nodes currently rendered in the graph
+    const rendered = new Set(nodesDS.getIds());
+    searchMatches = G.nodes
+        .filter(n => {
+            if (!rendered.has(n.id)) return false;
+            const text = searchIndex[n.id];
+            return terms.every(t => text.includes(t));
+        })
+        .map(n => n.id);
+    searchIdx = searchMatches.length > 0 ? 0 : -1;
+}
+
+function updateSearchHighlight() {
+    const info = document.getElementById('search-info');
+    if (searchMatches.length === 0) {
+        info.textContent = searchIdx === -1 && !document.getElementById('search-input').value
+            ? '' : 'No matches';
+        // Reset any previous highlight
+        const updates = [];
+        nodesDS.forEach(n => {
+            if (n._searchMatch !== undefined) updates.push({ id: n.id, borderWidth: n._origBorder, color: n._origColor, _searchMatch: undefined });
+        });
+        if (updates.length) nodesDS.update(updates);
+        return;
+    }
+    info.textContent = (searchIdx + 1) + ' / ' + searchMatches.length;
+
+    const matchSet = new Set(searchMatches);
+    const updates = [];
+    nodesDS.forEach(n => {
+        const isMatch = matchSet.has(n.id);
+        if (isMatch && !n._searchMatch) {
+            updates.push({ id: n.id, _origBorder: n.borderWidth, _origColor: n.color,
+                _searchMatch: true, borderWidth: 4,
+                color: Object.assign({}, n.color, { border: '#f0e040' }) });
+        } else if (!isMatch && n._searchMatch) {
+            updates.push({ id: n.id, borderWidth: n._origBorder, color: n._origColor,
+                _searchMatch: undefined });
+        }
+    });
+    if (updates.length) nodesDS.update(updates);
+
+    // Focus the current match
+    if (searchIdx >= 0) {
+        const focusId = searchMatches[searchIdx];
+        network.selectNodes([focusId]);
+        network.focus(focusId, { animation: { duration: 300, easingFunction: 'easeInOutQuad' } });
+        showNodeInfo(focusId);
+        selectedNodeId = focusId;
+    }
+}
+
+function openSearch() {
+    const bar = document.getElementById('search-bar');
+    bar.classList.remove('hidden');
+    const input = document.getElementById('search-input');
+    input.focus();
+    input.select();
+}
+
+function closeSearch() {
+    document.getElementById('search-bar').classList.add('hidden');
+    searchMatches = [];
+    searchIdx = -1;
+    updateSearchHighlight();
+    document.getElementById('search-input').value = '';
+    document.getElementById('search-info').textContent = '';
+}
+
+document.getElementById('search-input').addEventListener('input', function() {
+    searchNodes(this.value);
+    updateSearchHighlight();
+});
+
+document.getElementById('search-input').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        if (searchMatches.length === 0) return;
+        if (e.shiftKey) {
+            searchIdx = (searchIdx - 1 + searchMatches.length) % searchMatches.length;
+        } else {
+            searchIdx = (searchIdx + 1) % searchMatches.length;
+        }
+        updateSearchHighlight();
+    } else if (e.key === 'Escape') {
+        closeSearch();
+    }
+});
+
+document.getElementById('search-prev').addEventListener('click', function() {
+    if (searchMatches.length === 0) return;
+    searchIdx = (searchIdx - 1 + searchMatches.length) % searchMatches.length;
+    updateSearchHighlight();
+});
+document.getElementById('search-next').addEventListener('click', function() {
+    if (searchMatches.length === 0) return;
+    searchIdx = (searchIdx + 1) % searchMatches.length;
+    updateSearchHighlight();
+});
+document.getElementById('search-close').addEventListener('click', closeSearch);
 
 // ─── INITIAL RENDER ───
 renderGraph();
