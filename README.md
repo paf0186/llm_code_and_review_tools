@@ -31,20 +31,60 @@ Requires Python 3.9+.
 
 ## Configuration
 
-Tools are configured via environment variables or config files:
+### Gerrit
 
-| Tool | Environment Variables | Config File |
-|------|----------------------|-------------|
-| JIRA | `JIRA_SERVER`, `JIRA_TOKEN` (on-prem); `JIRA_CLOUD_SERVER`, `JIRA_CLOUD_EMAIL`, `JIRA_CLOUD_TOKEN`, `JIRA_CLOUD_PROJECTS` (cloud) | `~/.jira-tool.json` |
-| Gerrit | `GERRIT_URL`, `GERRIT_USER`, `GERRIT_PASS` | `~/.config/gerrit-cli/` |
-| Maloo | `MALOO_USER`, `MALOO_PASS` | -- |
-| Jenkins | `JENKINS_URL`, `JENKINS_USER`, `JENKINS_TOKEN` | -- |
+Set environment variables directly or in a `.env` file
+(searched in order: `./.env`, `~/.config/gerrit-cli/.env`,
+`/etc/gerrit-cli/.env`):
+
+```bash
+GERRIT_URL=https://review.whamcloud.com
+GERRIT_USER=your-username
+GERRIT_PASS=your-http-password    # Settings > HTTP Credentials
+```
+
+Optional: `GERRIT_SSH_USER` for SSH operations (defaults to
+`GERRIT_USER`).
+
+### JIRA
+
+**Single instance** -- environment variables:
+
+```bash
+JIRA_SERVER=https://jira.example.com
+JIRA_TOKEN=your-bearer-token
+```
+
+**Multiple instances** -- `~/.jira-tool.json`:
+
+```json
+{
+  "instances": {
+    "lu": {
+      "server": "https://jira.whamcloud.com",
+      "auth": {"type": "bearer", "token": "..."}
+    },
+    "cloud": {
+      "server": "https://yourorg.atlassian.net",
+      "auth": {"type": "basic", "email": "you@co.com", "token": "..."}
+    }
+  },
+  "default": "lu"
+}
+```
+
+Select instance with `jira -I cloud get EX-1234`. Projects
+listed in `JIRA_CLOUD_PROJECTS` (comma-separated env var) are
+automatically routed to the cloud instance.
+
+### Other Tools
+
+| Tool | Environment Variables | Notes |
+|------|----------------------|-------|
+| Maloo | `MALOO_USER`, `MALOO_PASS` | testing.whamcloud.com credentials |
+| Jenkins | `JENKINS_URL`, `JENKINS_USER`, `JENKINS_TOKEN` | API token from Jenkins user settings |
 | Janitor | -- | Uses Gerrit credentials |
 | Crash Tool | -- | No auth required |
-
-JIRA supports multiple instances. Projects listed in
-`JIRA_CLOUD_PROJECTS` (comma-separated) route to Atlassian Cloud;
-all others use the on-prem server. See `jira_tool/` for details.
 
 ## Output Format
 
