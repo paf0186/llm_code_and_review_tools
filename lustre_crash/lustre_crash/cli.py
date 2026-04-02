@@ -1,7 +1,7 @@
-"""CLI entry point for crash-tool.
+"""CLI entry point for lustre-crash.
 
-Provides non-interactive, LLM-friendly access to the crash utility
-for kernel crash dump analysis.
+Provides non-interactive, LLM-friendly crash dump analysis
+using drgn, with structured JSON output.
 """
 
 import json
@@ -24,7 +24,7 @@ from .session import (
     run_session,
 )
 
-TOOL_NAME = "crash-tool"
+TOOL_NAME = "lustre-crash"
 
 
 def _format_command_result(cr: CommandResult) -> dict[str, Any]:
@@ -75,7 +75,7 @@ class CrashGroup(click.Group):
 
 
 @click.group(cls=CrashGroup)
-@click.version_option(package_name="crash-tool", prog_name="crash-tool")
+@click.version_option(package_name="lustre-crash", prog_name="lustre-crash")
 @click.option("--pretty", is_flag=True, help="Pretty-print JSON output.")
 @click.option("--envelope", is_flag=True, help="Wrap output in full envelope.")
 @click.pass_context
@@ -128,11 +128,11 @@ def run(
 
     Examples:
 
-        crash-tool run "bt -a" "log" --vmcore /var/crash/vmcore
+        lustre-crash run "bt -a" "log" --vmcore /var/crash/vmcore
 
-        crash-tool run "ps" "files 1234" --vmlinux /boot/vmlinux
+        lustre-crash run "ps" "files 1234" --vmlinux /boot/vmlinux
 
-        crash-tool run --mod-dir /path/to/lustre/kos "sym obd_devs"
+        lustre-crash run --mod-dir /path/to/lustre/kos "sym obd_devs"
     """
     pretty = pretty or ctx.obj.get("pretty", False)
     full_env = ctx.obj.get("envelope", False)

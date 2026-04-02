@@ -6,7 +6,7 @@ testpaths = [
     "jenkins_tool/tests",
     "llm_tool_common/tests",
     "patch_shepherd/tests",
-    "crash_tool",
+    "lustre_crash",
 ]
 pythonpath = [
     "jira_tool",
@@ -15,7 +15,7 @@ pythonpath = [
     "jenkins_tool",
     "llm_tool_common/src",
     "patch_shepherd",
-    "crash_tool",
+    "lustre_crash",
 ]
 addopts = "--strict-markers --import-mode=importlib"
 markers = [

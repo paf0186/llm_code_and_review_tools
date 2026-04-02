@@ -1,4 +1,4 @@
-# crash-tool
+# lustre-crash
 
 Non-interactive crash dump analysis CLI for LLM agents.
 All recipes use drgn for structured, typed kernel analysis.
@@ -8,14 +8,14 @@ All recipes use drgn for structured, typed kernel analysis.
 All recipes use drgn -- no crash binary needed.
 
 ```bash
-crash-tool recipes                    # list available
-crash-tool recipes overview \         # system info, dmesg
+lustre-crash recipes                    # list available
+lustre-crash recipes overview \         # system info, dmesg
     --vmcore /path/to/vmcore \
     --vmlinux /path/to/vmlinux
-crash-tool recipes backtrace ...      # CPU + panic backtraces
-crash-tool recipes memory ...         # RAM + slab stats
-crash-tool recipes io ...             # block devs + D-state tasks
-crash-tool recipes lustre \           # full Lustre triage
+lustre-crash recipes backtrace ...      # CPU + panic backtraces
+lustre-crash recipes memory ...         # RAM + slab stats
+lustre-crash recipes io ...             # block devs + D-state tasks
+lustre-crash recipes lustre \           # full Lustre triage
     --vmcore /path/to/vmcore \
     --vmlinux /path/to/vmlinux \
     --mod-dir /path/to/lustre/build
@@ -37,8 +37,8 @@ know the crash command you want. The crash binary is not needed
 for any recipe.
 
 ```bash
-crash-tool run "bt -a" "log" --vmcore ... --vmlinux ...
-crash-tool script commands.txt --vmcore ...
+lustre-crash run "bt -a" "log" --vmcore ... --vmlinux ...
+lustre-crash script commands.txt --vmcore ...
 ```
 
 ## Install

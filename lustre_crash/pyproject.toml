@@ -3,20 +3,20 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "crash-tool"
-version = "0.1.1"
-description = "Non-interactive crash dump analysis wrapper for LLM agents"
+name = "lustre-crash"
+version = "0.2.0"
+description = "Non-interactive crash dump analysis using drgn for LLM agents"
 readme = "README.md"
 requires-python = ">=3.9"
-license = {text = "MIT"}
+license = {text = "BSD-2-Clause"}
 authors = [
-    {name = "Claude", email = "claude@anthropic.com"}
+    {name = "Patrick Farrell"}
 ]
-keywords = ["crash", "vmcore", "kernel", "debugging", "cli", "agent"]
+keywords = ["lustre", "drgn", "vmcore", "kernel", "debugging", "cli", "agent"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: BSD License",
     "Programming Language :: Python :: 3",
     "Topic :: System :: Operating System Kernels :: Linux",
 ]
@@ -26,10 +26,10 @@ dependencies = [
 ]
 
 [project.scripts]
-crash-tool = "crash_tool.cli:main"
+lustre-crash = "lustre_crash.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["crash_tool*"]
+include = ["lustre_crash*"]
 
 [tool.ruff]
 line-length = 100

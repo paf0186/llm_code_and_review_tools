@@ -1,4 +1,4 @@
-"""Tests for crash_tool.session module."""
+"""Tests for lustre_crash.session module."""
 
 import os
 import subprocess
@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from crash_tool.session import (
+from lustre_crash.session import (
     CommandResult,
     SessionResult,
     _detect_error,
@@ -139,7 +139,7 @@ class TestDetectError:
 class TestRunSession:
     """Tests for run_session()."""
 
-    @patch("crash_tool.session.subprocess.run")
+    @patch("lustre_crash.session.subprocess.run")
     def test_basic_session(self, mock_run):
         mock_run.return_value = subprocess.CompletedProcess(
             args=["crash", "-s"],
@@ -165,7 +165,7 @@ class TestRunSession:
         assert "PID: 1" in result.commands[0].output
         assert result.commands[0].error is False
 
-    @patch("crash_tool.session.subprocess.run")
+    @patch("lustre_crash.session.subprocess.run")
     def test_multiple_commands(self, mock_run):
         mock_run.return_value = subprocess.CompletedProcess(
             args=["crash", "-s"],
@@ -192,7 +192,7 @@ class TestRunSession:
         assert result.commands[1].command == "bt"
         assert "bt output" in result.commands[1].output
 
-    @patch("crash_tool.session.subprocess.run")
+    @patch("lustre_crash.session.subprocess.run")
     def test_error_in_output(self, mock_run):
         mock_run.return_value = subprocess.CompletedProcess(
             args=["crash", "-s"],
@@ -214,7 +214,7 @@ class TestRunSession:
         assert result.commands[0].error is True
         assert result.commands[0].error_message == "invalid command"
 
-    @patch("crash_tool.session.subprocess.run")
+    @patch("lustre_crash.session.subprocess.run")
     def test_timeout(self, mock_run):
         mock_run.side_effect = subprocess.TimeoutExpired(
             cmd=["crash"], timeout=120
@@ -233,7 +233,7 @@ class TestRunSession:
             assert cr.error is True
             assert "timed out" in cr.error_message
 
-    @patch("crash_tool.session.subprocess.run")
+    @patch("lustre_crash.session.subprocess.run")
     def test_crash_binary_not_found(self, mock_run):
         mock_run.side_effect = FileNotFoundError("No such file")
 
@@ -245,7 +245,7 @@ class TestRunSession:
         assert result.return_code == -1
         assert "not found" in result.crash_stderr
 
-    @patch("crash_tool.session.subprocess.run")
+    @patch("lustre_crash.session.subprocess.run")
     def test_no_sentinels_in_output(self, mock_run):
         mock_run.return_value = subprocess.CompletedProcess(
             args=["crash", "-s"],
@@ -263,7 +263,7 @@ class TestRunSession:
         assert len(result.commands) == 1
         assert result.commands[0].error is True
 
-    @patch("crash_tool.session.subprocess.run")
+    @patch("lustre_crash.session.subprocess.run")
     def test_vmlinux_vmcore_args(self, mock_run):
         mock_run.return_value = subprocess.CompletedProcess(
             args=[], returncode=0,
@@ -283,7 +283,7 @@ class TestRunSession:
         assert "/boot/vmlinux" in argv
         assert "/var/crash/vmcore" in argv
 
-    @patch("crash_tool.session.subprocess.run")
+    @patch("lustre_crash.session.subprocess.run")
     def test_minimal_flag(self, mock_run):
         mock_run.return_value = subprocess.CompletedProcess(
             args=[], returncode=0,
@@ -300,7 +300,7 @@ class TestRunSession:
         argv = mock_run.call_args[0][0]
         assert "--minimal" in argv
 
-    @patch("crash_tool.session.subprocess.run")
+    @patch("lustre_crash.session.subprocess.run")
     def test_mod_dir(self, mock_run):
         mock_run.return_value = subprocess.CompletedProcess(
             args=[], returncode=0,
@@ -317,7 +317,7 @@ class TestRunSession:
         input_text = mock_run.call_args[1]["input"]
         assert "mod -S /path/to/kos" in input_text
 
-    @patch("crash_tool.session.subprocess.run")
+    @patch("lustre_crash.session.subprocess.run")
     def test_pre_commands(self, mock_run):
         mock_run.return_value = subprocess.CompletedProcess(
             args=[], returncode=0,
@@ -334,7 +334,7 @@ class TestRunSession:
         input_text = mock_run.call_args[1]["input"]
         assert "set scroll off" in input_text
 
-    @patch("crash_tool.session.subprocess.run")
+    @patch("lustre_crash.session.subprocess.run")
     def test_extra_args(self, mock_run):
         mock_run.return_value = subprocess.CompletedProcess(
             args=[], returncode=0,
@@ -351,8 +351,8 @@ class TestRunSession:
         argv = mock_run.call_args[0][0]
         assert "--no_strip" in argv
 
-    @patch("crash_tool.session.find_crash_binary", return_value="/usr/bin/crash")
-    @patch("crash_tool.session.subprocess.run")
+    @patch("lustre_crash.session.find_crash_binary", return_value="/usr/bin/crash")
+    @patch("lustre_crash.session.subprocess.run")
     def test_auto_detect_binary(self, mock_run, mock_find):
         mock_run.return_value = subprocess.CompletedProcess(
             args=[], returncode=0,
@@ -366,7 +366,7 @@ class TestRunSession:
         argv = mock_run.call_args[0][0]
         assert argv[0] == "/usr/bin/crash"
 
-    @patch("crash_tool.session.subprocess.run")
+    @patch("lustre_crash.session.subprocess.run")
     def test_missing_output_chunk(self, mock_run):
         """If crash exits early, some commands get no output."""
         mock_run.return_value = subprocess.CompletedProcess(
@@ -385,7 +385,7 @@ class TestRunSession:
         # Second command should report error (no output captured)
         assert result.commands[1].error is True
 
-    @patch("crash_tool.session.subprocess.run")
+    @patch("lustre_crash.session.subprocess.run")
     def test_input_has_quit(self, mock_run):
         mock_run.return_value = subprocess.CompletedProcess(
             args=[], returncode=0,

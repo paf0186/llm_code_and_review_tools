@@ -90,11 +90,11 @@ install_tools() {
     (cd "$SCRIPT_DIR" && git submodule update --init --recursive 2>/dev/null || true)
     echo -e "${GREEN}✓${NC} submodules initialized"
 
-    # Install crash_tool
+    # Install lustre_crash
     echo ""
-    echo "Installing crash-tool..."
-    $PYTHON -m pip install -q -e "$SCRIPT_DIR/crash_tool"
-    echo -e "${GREEN}✓${NC} crash-tool installed"
+    echo "Installing lustre-crash..."
+    $PYTHON -m pip install -q -e "$SCRIPT_DIR/lustre_crash"
+    echo -e "${GREEN}✓${NC} lustre-crash installed"
 
     # Install janitor_tool
     echo ""
@@ -146,7 +146,7 @@ install_tools() {
     echo "  gerrit          - Gerrit code review (also: gc)"
     echo "  maloo           - Maloo test results"
     echo "  jenkins         - Jenkins build server"
-    echo "  crash-tool      - Non-interactive crash dump analysis"
+    echo "  lustre-crash    - Non-interactive crash dump analysis"
     echo "  janitor         - Gerrit Janitor test results"
     echo "  bd              - Beads task tracking"
     echo ""
@@ -155,7 +155,7 @@ install_tools() {
     echo "  gerrit --help"
     echo "  maloo --help"
     echo "  jenkins --help"
-    echo "  crash-tool --help"
+    echo "  lustre-crash --help"
     echo "  janitor --help"
     echo "  bd --help"
     echo ""
@@ -195,6 +195,10 @@ uninstall_tools() {
 
     echo "Uninstalling janitor-tool..."
     $PYTHON -m pip uninstall -y janitor-tool 2>/dev/null || true
+
+    echo "Uninstalling lustre-crash..."
+    $PYTHON -m pip uninstall -y lustre-crash 2>/dev/null || true
+    $PYTHON -m pip uninstall -y crash-tool 2>/dev/null || true
 
     echo "Uninstalling llm-tool-common..."
     $PYTHON -m pip uninstall -y llm-tool-common 2>/dev/null || true

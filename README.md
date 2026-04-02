@@ -12,7 +12,7 @@ CI, issue tracking, and crash analysis systems.
 | **Maloo** | `maloo` | Lustre CI test results -- failures, retests, bug linking |
 | **Jenkins** | `jenkins` | Jenkins build server -- build status, console logs, retriggers |
 | **Janitor** | `janitor` | Gerrit Janitor test results (separate from Maloo/enforced CI) |
-| **Crash Tool** | `crash-tool` | Non-interactive crash dump analysis with structured JSON output |
+| **Lustre Crash** | `lustre-crash` | Crash dump analysis using drgn, with structured JSON output |
 
 Shared utilities live in `llm_tool_common/`.
 
@@ -130,7 +130,7 @@ Verify: `jenkins build <any-build-url>`
 | Tool | Notes |
 |------|-------|
 | Janitor | Uses Gerrit credentials (no extra config) |
-| Crash Tool | No auth required |
+| Lustre Crash | No auth required |
 
 ## Output Format
 
@@ -154,7 +154,7 @@ llm_code_and_review_tools/
 ├── maloo_tool/          # Maloo CI results CLI
 ├── jenkins_tool/        # Jenkins build server CLI
 ├── janitor_tool/        # Gerrit Janitor results CLI
-├── crash_tool/          # Crash dump analysis CLI
+├── lustre_crash/        # Crash dump analysis CLI (lustre-crash)
 ├── patch_shepherd/      # Patch series monitoring (beta)
 ├── lustre-drgn-tools/   # drgn vmcore analysis (submodule)
 ├── llm_tool_common/     # Shared utilities

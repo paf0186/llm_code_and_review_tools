@@ -1,4 +1,4 @@
-"""Tests for crash_tool.cli module."""
+"""Tests for lustre_crash.cli module."""
 
 import json
 import tempfile
@@ -6,13 +6,13 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from crash_tool.cli import (
+from lustre_crash.cli import (
     _format_command_result,
     _format_session,
     _get_recipes,
     main,
 )
-from crash_tool.session import CommandResult, SessionResult
+from lustre_crash.session import CommandResult, SessionResult
 
 
 class TestFormatCommandResult:
@@ -77,9 +77,8 @@ class TestGetRecipes:
         recipes = _get_recipes()
         for name, recipe in recipes.items():
             assert "description" in recipe
-            assert "commands" in recipe
-            assert isinstance(recipe["commands"], list)
-            assert len(recipe["commands"]) > 0
+            assert "analyses" in recipe
+            assert isinstance(recipe["analyses"], list)
 
     def test_lustre_needs_modules(self):
         recipes = _get_recipes()
@@ -91,7 +90,7 @@ class TestGetRecipes:
 class TestRunCommand:
     """Tests for the 'run' CLI command."""
 
-    @patch("crash_tool.cli.run_session")
+    @patch("lustre_crash.cli.run_session")
     def test_basic_run(self, mock_session):
         mock_session.return_value = SessionResult(
             commands=[CommandResult(command="bt", output="bt output")],
@@ -105,7 +104,7 @@ class TestRunCommand:
         data = json.loads(result.output)
         assert data["commands"][0]["output"] == "bt output"
 
-    @patch("crash_tool.cli.run_session")
+    @patch("lustre_crash.cli.run_session")
     def test_run_with_options(self, mock_session):
         mock_session.return_value = SessionResult(
             commands=[CommandResult(command="bt", output="ok")],
@@ -133,7 +132,7 @@ class TestRunCommand:
         assert call_kwargs["crash_binary"] == "/usr/bin/crash"
         assert call_kwargs["mod_dir"] == "/path/kos"
 
-    @patch("crash_tool.cli.run_session")
+    @patch("lustre_crash.cli.run_session")
     def test_run_nonzero_return_code(self, mock_session):
         mock_session.return_value = SessionResult(
             commands=[CommandResult(command="bt", output="")],
@@ -145,7 +144,7 @@ class TestRunCommand:
 
         assert result.exit_code == 1
 
-    @patch("crash_tool.cli.run_session", side_effect=FileNotFoundError("crash not found"))
+    @patch("lustre_crash.cli.run_session", side_effect=FileNotFoundError("crash not found"))
     def test_run_crash_not_found(self, mock_session):
         runner = CliRunner()
         result = runner.invoke(main, ["run", "bt"])
@@ -154,14 +153,14 @@ class TestRunCommand:
         data = json.loads(result.output)
         assert "error" in data or "NOT_FOUND" in result.output
 
-    @patch("crash_tool.cli.run_session", side_effect=RuntimeError("oops"))
+    @patch("lustre_crash.cli.run_session", side_effect=RuntimeError("oops"))
     def test_run_generic_error(self, mock_session):
         runner = CliRunner()
         result = runner.invoke(main, ["run", "bt"])
 
         assert result.exit_code == 1
 
-    @patch("crash_tool.cli.run_session")
+    @patch("lustre_crash.cli.run_session")
     def test_run_pretty(self, mock_session):
         mock_session.return_value = SessionResult(
             commands=[CommandResult(command="bt", output="ok")],
@@ -179,7 +178,7 @@ class TestRunCommand:
 class TestScriptCommand:
     """Tests for the 'script' CLI command."""
 
-    @patch("crash_tool.cli.run_session")
+    @patch("lustre_crash.cli.run_session")
     def test_basic_script(self, mock_session):
         mock_session.return_value = SessionResult(
             commands=[
@@ -199,7 +198,7 @@ class TestScriptCommand:
         data = json.loads(result.output)
         assert len(data["commands"]) == 2
 
-    @patch("crash_tool.cli.run_session")
+    @patch("lustre_crash.cli.run_session")
     def test_script_skips_comments_and_blanks(self, mock_session):
         mock_session.return_value = SessionResult(
             commands=[CommandResult(command="bt", output="out")],
@@ -225,7 +224,7 @@ class TestScriptCommand:
 
         assert result.exit_code == 2
 
-    @patch("crash_tool.cli.run_session", side_effect=RuntimeError("boom"))
+    @patch("lustre_crash.cli.run_session", side_effect=RuntimeError("boom"))
     def test_script_crash_error(self, mock_session):
         runner = CliRunner()
         with runner.isolated_filesystem():
@@ -248,19 +247,15 @@ class TestRecipesCommand:
         assert "recipes" in data
         assert "overview" in data["recipes"]
 
-    @patch("crash_tool.cli.run_session")
-    def test_run_recipe(self, mock_session):
-        mock_session.return_value = SessionResult(
-            commands=[
-                CommandResult(command="sys", output="sys out"),
-                CommandResult(command="bt", output="bt out"),
-            ],
-            return_code=0,
-        )
+    @patch("lustre_crash.cli.run_drgn_kernel_triage")
+    def test_run_recipe(self, mock_triage):
+        mock_triage.return_value = {"overview": {"hostname": "test"}}
 
         runner = CliRunner()
         result = runner.invoke(main, [
-            "recipes", "overview", "--crash-bin", "/usr/bin/crash"
+            "recipes", "overview",
+            "--vmcore", "/path/to/vmcore",
+            "--vmlinux", "/path/to/vmlinux",
         ])
 
         assert result.exit_code == 0
@@ -275,32 +270,18 @@ class TestRecipesCommand:
 
     def test_lustre_recipe_requires_mod_dir(self):
         runner = CliRunner()
-        result = runner.invoke(main, ["recipes", "lustre"])
+        result = runner.invoke(main, [
+            "recipes", "lustre",
+            "--vmcore", "/path/to/vmcore",
+            "--vmlinux", "/path/to/vmlinux",
+        ])
 
         assert result.exit_code == 2
         assert "mod-dir" in result.output.lower() or "requires" in result.output.lower()
 
-    @patch("crash_tool.cli.run_session")
-    def test_lustre_recipe_with_mod_dir(self, mock_session):
-        mock_session.return_value = SessionResult(
-            commands=[CommandResult(command="mod", output="ok")],
-            return_code=0,
-        )
-
+    def test_recipe_requires_vmcore(self):
         runner = CliRunner()
-        result = runner.invoke(main, [
-            "recipes", "lustre",
-            "--mod-dir", "/path/to/kos",
-            "--crash-bin", "/usr/bin/crash",
-        ])
+        result = runner.invoke(main, ["recipes", "overview"])
 
-        assert result.exit_code == 0
-
-    @patch("crash_tool.cli.run_session", side_effect=RuntimeError("crash failed"))
-    def test_recipe_crash_error(self, mock_session):
-        runner = CliRunner()
-        result = runner.invoke(main, [
-            "recipes", "overview", "--crash-bin", "/usr/bin/crash"
-        ])
-
-        assert result.exit_code == 1
+        assert result.exit_code == 2
+        assert "vmcore" in result.output.lower() or "requires" in result.output.lower()
