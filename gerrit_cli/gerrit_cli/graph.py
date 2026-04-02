@@ -350,10 +350,9 @@ def build_graph(
         # Extract host from base_url for SSH (e.g., review.whamcloud.com)
         from urllib.parse import urlparse
         parsed = urlparse(base_url)
-        checkout_cmd = (
-            f"git fetch {base_url}/fs/lustre-release {ref}"
-            f" && git checkout FETCH_HEAD"
-        )
+        fetch_cmd = f"git fetch {base_url}/fs/lustre-release {ref}"
+        checkout_cmd = f"{fetch_cmd} && git checkout FETCH_HEAD"
+        cherrypick_cmd = f"{fetch_cmd} && git cherry-pick FETCH_HEAD"
 
         nodes[cn] = {
             "id": cn,
@@ -366,6 +365,7 @@ def build_graph(
             "topic": "",
             "hashtags": [],
             "checkout_cmd": checkout_cmd,
+            "cherrypick_cmd": cherrypick_cmd,
         }
         commit_to_cn[commit_hash] = cn
         raw_entries.append({
@@ -1635,6 +1635,7 @@ function showNodeInfo(id) {
                 ${staleTag}
                 &nbsp; ps${node.current_patchset}
                 ${node.checkout_cmd ? `<button onclick="navigator.clipboard.writeText('${node.checkout_cmd.replace(/'/g, "\\'")}');this.textContent='\u2713';setTimeout(()=>this.textContent='Checkout',1500)" style="cursor:pointer;font-size:11px;background:none;border:1px solid var(--border);border-radius:4px;padding:1px 8px;color:var(--accent);margin-left:6px" title="Copy checkout command to clipboard">Checkout</button>` : ''}
+                ${node.cherrypick_cmd ? `<button onclick="navigator.clipboard.writeText('${node.cherrypick_cmd.replace(/'/g, "\\'")}');this.textContent='\u2713';setTimeout(()=>this.textContent='Cherry-pick',1500)" style="cursor:pointer;font-size:11px;background:none;border:1px solid var(--border);border-radius:4px;padding:1px 8px;color:var(--accent);margin-left:4px" title="Copy cherry-pick command to clipboard">Cherry-pick</button>` : ''}
             </div>
         </div>
         <div class="field">
