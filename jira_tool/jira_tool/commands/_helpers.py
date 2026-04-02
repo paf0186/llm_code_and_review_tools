@@ -3,6 +3,7 @@
 These are re-exported from cli.py for backward compatibility.
 """
 
+import os
 import re
 import sys
 from typing import Any
@@ -11,7 +12,7 @@ from urllib.parse import urlparse
 import click
 
 from ..client import JiraClient, _adf_to_text
-from ..config import DEFAULT_CONFIG_PATH, JiraConfig, load_config
+from ..config import AUTH_TYPE_BASIC, DEFAULT_CONFIG_PATH, JiraConfig, load_config
 from ..envelope import error_response, error_response_from_dict, format_json, success_response
 from ..errors import ConfigError, ErrorCode, ExitCode, JiraToolError
 
@@ -116,8 +117,69 @@ def handle_error(error: JiraToolError, command: str, pretty: bool) -> int:
     return error.exit_code
 
 
-def get_client(ctx: click.Context) -> JiraClient:
-    """Get configured JIRA client from context."""
+def _get_cloud_projects() -> set[str]:
+    """Return the set of JIRA project prefixes that should route to the cloud instance."""
+    raw = os.environ.get("JIRA_CLOUD_PROJECTS", "")
+    return {p.strip().upper() for p in raw.split(",") if p.strip()}
+
+
+def _build_cloud_client(ctx: click.Context) -> JiraClient:
+    """Build a JiraClient pointing at the JIRA Cloud instance.
+
+    Uses JIRA_CLOUD_SERVER, JIRA_CLOUD_EMAIL, and JIRA_CLOUD_TOKEN env vars.
+    """
+    server = os.environ.get("JIRA_CLOUD_SERVER", "")
+    token = os.environ.get("JIRA_CLOUD_TOKEN", "")
+    email = os.environ.get("JIRA_CLOUD_EMAIL", "")
+
+    if not server or not token:
+        raise ConfigError(
+            "Cloud routing triggered but JIRA_CLOUD_SERVER and/or JIRA_CLOUD_TOKEN "
+            "are not set. Configure them in your environment or use -I to select "
+            "an instance explicitly."
+        )
+
+    config = JiraConfig(
+        server=server,
+        token=token,
+        auth_type=AUTH_TYPE_BASIC,
+        email=email or None,
+    )
+    ctx.obj["config"] = config
+    return JiraClient(config, debug=ctx.obj.get("debug", False))
+
+
+def _project_from_issue_key(raw_key: str) -> str | None:
+    """Extract the project prefix from an issue key or URL."""
+    normalized = extract_issue_key(raw_key)
+    if "-" in normalized:
+        return normalized.split("-", 1)[0].upper()
+    return None
+
+
+def get_client(
+    ctx: click.Context,
+    *,
+    issue_key: str | None = None,
+    project: str | None = None,
+) -> JiraClient:
+    """Get configured JIRA client from context, with automatic cloud routing.
+
+    If *issue_key* or *project* identifies a project listed in the
+    ``JIRA_CLOUD_PROJECTS`` env var (comma-separated), the client is
+    built from the ``JIRA_CLOUD_*`` env vars instead of the default config.
+
+    An explicit ``-I`` / ``--instance`` flag always takes precedence.
+    """
+    # Explicit -I flag overrides all auto-routing
+    if not ctx.obj.get("instance"):
+        prefix = project.upper() if project else None
+        if not prefix and issue_key:
+            prefix = _project_from_issue_key(issue_key)
+
+        if prefix and prefix in _get_cloud_projects():
+            return _build_cloud_client(ctx)
+
     config = load_config(
         config_path=ctx.obj.get("config_path"),
         server_override=ctx.obj.get("server_override"),

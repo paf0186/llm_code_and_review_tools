@@ -15,9 +15,14 @@ Bug tracking, issue management, and test failure research.
 `jira create`, `jira update`, `jira link`, `jira transition`,
 `jira assign`, `jira filter list/export/import`.
 
+**Automatic cloud routing:** Projects listed in `JIRA_CLOUD_PROJECTS`
+are automatically routed to the Cloud instance. No `-I` flag needed.
+Routing is by project prefix — extracted from issue keys and JQL.
+`-I` overrides auto-routing when specified explicitly.
+
 **Multi-instance support:** `-I <name>` selects a named instance
-(e.g., `jira -I cloud get EX-13727`). Without `-I`, uses the
-default instance. Instances configured in `~/.jira-tool.json`.
+from `~/.jira-tool.json`. Without `-I`, auto-routes by project
+prefix or falls back to the default instance.
 
 **Cloud vs Server:** The tool auto-detects JIRA Cloud instances
 (`.atlassian.net`) and handles API differences transparently:
@@ -53,10 +58,17 @@ default instance. Instances configured in `~/.jira-tool.json`.
 }
 ```
 
+**Cloud routing env vars (`~/.zshrc`):**
+```bash
+JIRA_CLOUD_SERVER="https://your-org.atlassian.net"
+JIRA_CLOUD_EMAIL="user@example.com"
+JIRA_CLOUD_TOKEN="<Atlassian API token>"
+JIRA_CLOUD_PROJECTS="PROJ1,PROJ2"   # comma-separated project prefixes
+```
+
 **Token generation:**
-- Whamcloud PAT: `jira.whamcloud.com` → Profile → Personal
-  Access Tokens
-- Atlassian API token: `id.atlassian.com/manage-profile/security/api-tokens`
+- Server PAT: JIRA → Profile → Personal Access Tokens
+- Cloud API token: `id.atlassian.com/manage-profile/security/api-tokens`
 
 Run `jira --help` for full command list.
 

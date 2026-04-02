@@ -31,7 +31,7 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
+            client = get_client(ctx, project=project_key)
 
             raw = client.get_project_roles(project_key)
 
@@ -66,7 +66,7 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
+            client = get_client(ctx, project=project_key)
 
             raw = client.get_project_components(project_key)
             components = []
@@ -110,8 +110,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             if replace:
                 client.set_components(key, list(components))
@@ -148,8 +148,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             client.remove_components(key, list(components))
 
@@ -180,7 +180,7 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
+            client = get_client(ctx, project=project_key)
 
             raw = client.get_project_versions(project_key)
             versions = []
@@ -226,8 +226,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             if replace:
                 client.set_fix_versions(key, list(versions))
@@ -264,8 +264,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             client.remove_fix_versions(key, list(versions))
 

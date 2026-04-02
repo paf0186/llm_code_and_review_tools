@@ -45,8 +45,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             field_list = fields.split(",") if fields else None
             raw_issue = client.get_issue(key, fields=field_list)
@@ -113,7 +113,7 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
+            client = get_client(ctx, project=project)
 
             fields: dict[str, Any] = {}
             if labels:
@@ -195,8 +195,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             # Parse labels
             add_label_list = [l.strip() for l in labels.split(",")] if labels else None
@@ -319,8 +319,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             raw_transitions = client.get_transitions(key)
 
@@ -373,8 +373,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             # Resolve name to ID if not purely numeric
             transition_id = transition_name_or_id
@@ -479,7 +479,7 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
+            client = get_client(ctx, project=project_key)
 
             raw_types = client.get_issue_types(project_key)
 
@@ -537,8 +537,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             parent_key = extract_issue_key(parent_key)
+            client = get_client(ctx, issue_key=parent_key)
 
             # Get the parent's project key
             project_key = parent_key.rsplit("-", 1)[0]
@@ -599,8 +599,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             raw_issue = client.get_issue(key, fields=["subtasks"])
             raw_subtasks = raw_issue.get("fields", {}).get("subtasks", [])
@@ -641,8 +641,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             client.delete_issue(key)
 

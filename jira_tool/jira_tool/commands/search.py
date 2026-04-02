@@ -1,5 +1,6 @@
 """Search and describe commands."""
 
+import re
 import sys
 
 import click
@@ -77,7 +78,12 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
+            # Try to extract a single project from the JQL for auto-routing
+            _proj_match = re.search(
+                r'\bproject\s*=\s*["\']?([A-Z][A-Z0-9_]+)', jql, re.IGNORECASE,
+            )
+            _jql_project = _proj_match.group(1).upper() if _proj_match else None
+            client = get_client(ctx, project=_jql_project)
 
             field_list = fields.split(",") if fields else None
 

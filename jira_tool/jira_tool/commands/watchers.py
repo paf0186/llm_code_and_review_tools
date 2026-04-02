@@ -31,8 +31,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             raw_watchers = client.get_watchers(key)
 
@@ -83,8 +83,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             # If no user specified, get current user from server
             if user is None:
@@ -137,8 +137,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             # If no user specified, get current user from server
             if user is None:

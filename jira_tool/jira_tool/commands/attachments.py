@@ -155,8 +155,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             result = client.upload_attachment(key, file_path, filename=filename)
 
@@ -202,8 +202,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             # Get issue with attachment field
             raw_issue = client.get_issue(key, fields=["attachment"])

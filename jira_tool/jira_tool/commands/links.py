@@ -70,9 +70,9 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
             target_key = extract_issue_key(target_key)
+            client = get_client(ctx, issue_key=key)
 
             # Fuzzy-match link type against available types
             resolved_type = _resolve_link_type(client, link_type)
@@ -113,7 +113,7 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
+            client = get_client(ctx, issue_key=key)
 
             if target_key is None:
                 # Single argument: treat as link ID
@@ -189,8 +189,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             # Get issue with issuelinks field
             raw_issue = client.get_issue(key, fields=["issuelinks"])

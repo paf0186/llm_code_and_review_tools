@@ -43,8 +43,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             order_by = "created" if oldest_first else "-created"
 
@@ -109,8 +109,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             visibility_dict = _parse_visibility(visibility) if visibility else None
             if comment_id:
@@ -156,8 +156,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             visibility_dict = _parse_visibility(visibility) if visibility else None
             raw_comment = client.edit_comment(key, comment_id, body, visibility=visibility_dict)
@@ -191,8 +191,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             client.delete_comment(key, comment_id)
 

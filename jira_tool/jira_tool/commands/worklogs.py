@@ -33,8 +33,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             raw_worklogs = client.get_worklogs(key, start_at=offset, max_results=limit)
 
@@ -89,8 +89,8 @@ def register(main):
         pretty = ctx.obj.get("pretty", False)
 
         try:
-            client = get_client(ctx)
             key = extract_issue_key(key)
+            client = get_client(ctx, issue_key=key)
 
             raw_worklog = client.add_worklog(key, time_spent, comment=comment)
 
