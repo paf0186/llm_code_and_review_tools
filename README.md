@@ -40,11 +40,16 @@ Set environment variables directly or in a `.env` file
 ```bash
 GERRIT_URL=https://review.whamcloud.com
 GERRIT_USER=your-username
-GERRIT_PASS=your-http-password    # Settings > HTTP Credentials
+GERRIT_PASS=your-http-password
 ```
+
+To get your HTTP password: log into Gerrit, go to
+Settings > HTTP Credentials > Generate Password.
 
 Optional: `GERRIT_SSH_USER` for SSH operations (defaults to
 `GERRIT_USER`).
+
+Verify: `gerrit info <any-change-url>`
 
 ### JIRA
 
@@ -60,8 +65,8 @@ JIRA_TOKEN=your-bearer-token
 ```json
 {
   "instances": {
-    "lu": {
-      "server": "https://jira.whamcloud.com",
+    "onprem": {
+      "server": "https://jira.example.com",
       "auth": {"type": "bearer", "token": "..."}
     },
     "cloud": {
@@ -69,22 +74,54 @@ JIRA_TOKEN=your-bearer-token
       "auth": {"type": "basic", "email": "you@co.com", "token": "..."}
     }
   },
-  "default": "lu"
+  "default": "onprem"
 }
 ```
+
+Auth types:
+- **bearer** -- for on-prem JIRA Server/Data Center. Create a
+  Personal Access Token in your JIRA profile settings.
+- **basic** -- for Atlassian Cloud. Uses your email + an API
+  token created at https://id.atlassian.com/manage-profile/security/api-tokens
 
 Select instance with `jira -I cloud get EX-1234`. Projects
 listed in `JIRA_CLOUD_PROJECTS` (comma-separated env var) are
 automatically routed to the cloud instance.
 
+Verify: `jira get <any-issue-key>`
+
+### Maloo
+
+Maloo is the Lustre CI test results system at
+testing.whamcloud.com.
+
+```bash
+MALOO_USER=your-username
+MALOO_PASS=your-password
+```
+
+Verify: `maloo queue`
+
+### Jenkins
+
+```bash
+JENKINS_URL=https://build.whamcloud.com
+JENKINS_USER=your-username
+JENKINS_TOKEN=your-api-token
+```
+
+To get your API token: log into Jenkins, go to your user
+profile > Configure > API Token > Add new Token.
+
+Verify: `jenkins build <any-build-url>`
+
 ### Other Tools
 
-| Tool | Environment Variables | Notes |
-|------|----------------------|-------|
-| Maloo | `MALOO_USER`, `MALOO_PASS` | testing.whamcloud.com credentials |
-| Jenkins | `JENKINS_URL`, `JENKINS_USER`, `JENKINS_TOKEN` | API token from Jenkins user settings |
-| Janitor | -- | Uses Gerrit credentials |
-| Crash Tool | -- | No auth required |
+| Tool | Notes |
+|------|-------|
+| Janitor | Uses Gerrit credentials (no extra config) |
+| Crash Tool | No auth required |
+| lustre-drgn-tools | Requires drgn; run `lustre-drgn-tools/install-drgn.sh` |
 
 ## Output Format
 
