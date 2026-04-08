@@ -291,6 +291,35 @@ def _parse_labels(labels: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _make_node(
+    cn: int, subject: str, status: str, latest: int,
+    author: str, base_url: str, ticket: str = "",
+    topic: str = "", hashtags: list[str] | None = None,
+    updated: str = "",
+) -> dict[str, Any]:
+    """Create a node dict for the graph."""
+    import re
+    if not ticket:
+        m = re.match(r"(LU-\d+)", subject)
+        ticket = m.group(1) if m else ""
+    ref = f"refs/changes/{cn % 100:02d}/{cn}/{latest}"
+    fetch_cmd = f"git fetch {base_url}/fs/lustre-release {ref}"
+    return {
+        "id": cn,
+        "subject": subject,
+        "status": status,
+        "current_patchset": latest,
+        "author": author,
+        "url": f"{base_url}/c/fs/lustre-release/+/{cn}",
+        "ticket": ticket,
+        "topic": topic,
+        "hashtags": hashtags or [],
+        "checkout_cmd": f"{fetch_cmd} && git checkout FETCH_HEAD",
+        "cherrypick_cmd": f"{fetch_cmd} && git cherry-pick FETCH_HEAD",
+        "updated": updated,
+    }
+
+
 def build_graph(
     client: GerritCommentsClient,
     change_number: int,
@@ -339,34 +368,11 @@ def build_graph(
         latest = entry.get("_current_revision_number", 0)
         status = entry.get("status", "UNKNOWN")
 
-        # Extract ticket from subject
-        import re
         subject = ci.get("subject", "")
-        ticket_match = re.match(r"(LU-\d+)", subject)
-        ticket = ticket_match.group(1) if ticket_match else ""
-
-        # Construct anonymous checkout ref
-        ref = f"refs/changes/{cn % 100:02d}/{cn}/{latest}"
-        # Extract host from base_url for SSH (e.g., review.whamcloud.com)
-        from urllib.parse import urlparse
-        parsed = urlparse(base_url)
-        fetch_cmd = f"git fetch {base_url}/fs/lustre-release {ref}"
-        checkout_cmd = f"{fetch_cmd} && git checkout FETCH_HEAD"
-        cherrypick_cmd = f"{fetch_cmd} && git cherry-pick FETCH_HEAD"
-
-        nodes[cn] = {
-            "id": cn,
-            "subject": subject,
-            "status": status,
-            "current_patchset": latest,
-            "author": author_info.get("name", "Unknown"),
-            "url": f"{base_url}/c/fs/lustre-release/+/{cn}",
-            "ticket": ticket,
-            "topic": "",
-            "hashtags": [],
-            "checkout_cmd": checkout_cmd,
-            "cherrypick_cmd": cherrypick_cmd,
-        }
+        nodes[cn] = _make_node(
+            cn, subject, status, latest,
+            author_info.get("name", "Unknown"), base_url,
+        )
         commit_to_cn[commit_hash] = cn
         raw_entries.append({
             "cn": cn,
@@ -376,49 +382,238 @@ def build_graph(
             "latest": latest,
         })
 
-    # 3. Fetch ALL_REVISIONS in batches to build commit -> (change, patchset) map
-    all_cns = sorted(nodes.keys())
+    # 3. Fetch ALL_REVISIONS + ALL_COMMITS in batches to build
+    #    commit -> (change, patchset) map AND collect parent commits
+    #    for every revision (needed to discover stale branches that
+    #    are no longer in the /related chain).
     commit_to_change_ps: dict[str, tuple[int, int]] = {}
+    revision_parents: dict[str, str] = {}  # commit_hash -> parent_commit_hash
     batch_size = 50
-    batches = [all_cns[i:i + batch_size] for i in range(0, len(all_cns), batch_size)]
+    labels_by_cn: dict[int, dict[str, Any]] = {}
+    comment_count_by_cn: dict[int, int] = {}
 
+    def _fetch_revisions_batch(
+        cns: list[int], *, collect_parents: bool = False,
+    ) -> None:
+        """Fetch ALL_REVISIONS for a batch of changes.
+
+        If collect_parents is True, also request ALL_COMMITS and
+        record parent commit hashes in revision_parents. Only use
+        this for the initial /related set to avoid unbounded discovery.
+        """
+        opts = "&o=ALL_REVISIONS&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS"
+        if collect_parents:
+            opts += "&o=ALL_COMMITS"
+        # ALL_COMMITS returns much more data per change, use
+        # smaller batches to avoid connection errors.
+        bs = 10 if collect_parents else batch_size
+        batches = [cns[i:i + bs]
+                   for i in range(0, len(cns), bs)]
+        for batch_idx, batch in enumerate(batches):
+            query = " OR ".join(f"change:{cn}" for cn in batch)
+            try:
+                result = client.rest.get(
+                    f"/changes/?q={quote(query, safe=':+ ')}"
+                    f"{opts}&n=500"
+                )
+                for change in result:
+                    cn = change.get("_number", 0)
+                    for rev_hash, rev_info in change.get(
+                        "revisions", {}
+                    ).items():
+                        ps = rev_info.get("_number", 0)
+                        commit_to_change_ps[rev_hash] = (cn, ps)
+                        if collect_parents:
+                            ci = rev_info.get("commit", {})
+                            parents = ci.get("parents", [])
+                            if parents:
+                                revision_parents[rev_hash] = (
+                                    parents[0].get("commit", "")
+                                )
+                    labels_by_cn[cn] = _parse_labels(
+                        change.get("labels", {})
+                    )
+                    comment_count_by_cn[cn] = change.get(
+                        "unresolved_comment_count", 0
+                    )
+                    if cn in nodes:
+                        nodes[cn]["topic"] = change.get("topic", "")
+                        nodes[cn]["hashtags"] = change.get("hashtags", [])
+                        nodes[cn]["updated"] = change.get("updated", "")
+            except Exception as e:
+                if progress:
+                    print(f" (batch {batch_idx} error: {e})", end="",
+                          file=sys.stderr, flush=True)
+
+    all_cns = sorted(nodes.keys())
     if progress:
         print(f"Fetching revision history ({len(all_cns)} changes)...",
               end="", file=sys.stderr, flush=True)
+    _fetch_revisions_batch(all_cns, collect_parents=True)
+    if progress:
+        print(f" {len(commit_to_change_ps)} commits mapped.",
+              file=sys.stderr, flush=True)
 
-    labels_by_cn: dict[int, dict[str, Any]] = {}  # change_number -> review info
-    comment_count_by_cn: dict[int, int] = {}  # change_number -> unresolved count
+    # 3a. Discover changes reachable via old patchset parent commits
+    #     that weren't returned by /related. Only uses parents from
+    #     the initial /related set (collect_parents=True above) to
+    #     avoid unbounded expansion into unrelated history.
+    unresolved: set[str] = set()
+    for child_hash, parent_hash in revision_parents.items():
+        if parent_hash and parent_hash not in commit_to_change_ps:
+            unresolved.add(parent_hash)
 
-    for batch_idx, batch in enumerate(batches):
-        query = " OR ".join(f"change:{cn}" for cn in batch)
+    if unresolved:
+        # Search Gerrit for changes containing these commits
+        unresolved_list = sorted(unresolved)
+        discovered_cns: set[int] = set()
+        search_batches = [
+            unresolved_list[i:i + 30]
+            for i in range(0, len(unresolved_list), 30)
+        ]
+        for sb in search_batches:
+            query = " OR ".join(f"commit:{h}" for h in sb)
+            try:
+                result = client.rest.get(
+                    f"/changes/?q={quote(query, safe=':+ ')}&n=500"
+                )
+                for change in result:
+                    cn = change.get("_number", 0)
+                    if cn and cn not in nodes:
+                        discovered_cns.add(cn)
+                        nodes[cn] = _make_node(
+                            cn, change.get("subject", ""),
+                            change.get("status", "UNKNOWN"),
+                            change.get("_current_revision_number", 1),
+                            change.get("owner", {}).get("name", "Unknown"),
+                            base_url,
+                            topic=change.get("topic", ""),
+                            hashtags=change.get("hashtags", []),
+                            updated=change.get("updated", ""),
+                        )
+            except Exception:
+                pass
+
+        if discovered_cns:
+            if progress:
+                print(
+                    f"Discovered {len(discovered_cns)} additional changes"
+                    " via old patchset parents...",
+                    end="", file=sys.stderr, flush=True,
+                )
+            # Also collect parents for discovered changes so we can
+            # find one more level of connections.
+            _fetch_revisions_batch(sorted(discovered_cns))
+            if progress:
+                print(
+                    f" {len(commit_to_change_ps)} total commits mapped.",
+                    file=sys.stderr, flush=True,
+                )
+
+    # 3a-ii. Topic-based discovery: find changes sharing the anchor's
+    #        topic that aren't already in our set. This catches children
+    #        (dependents) that are no longer in the /related chain.
+    anchor_topic = nodes.get(change_number, {}).get("topic", "")
+    if anchor_topic:
         try:
             result = client.rest.get(
-                f"/changes/?q={quote(query, safe=':+ ')}"
-                f"&o=ALL_REVISIONS&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&n=500"
+                f"/changes/?q={quote(f'topic:{anchor_topic}', safe=':+')}"
+                f"&n=500"
             )
+            topic_discovered: set[int] = set()
             for change in result:
                 cn = change.get("_number", 0)
-                for rev_hash, rev_info in change.get("revisions", {}).items():
-                    ps = rev_info.get("_number", 0)
-                    commit_to_change_ps[rev_hash] = (cn, ps)
-                # Parse labels into compact review info
-                labels_by_cn[cn] = _parse_labels(change.get("labels", {}))
-                # Comment count (free from batch query)
-                comment_count_by_cn[cn] = change.get(
-                    "unresolved_comment_count", 0
+                if cn and cn not in nodes:
+                    topic_discovered.add(cn)
+                    nodes[cn] = _make_node(
+                        cn, change.get("subject", ""),
+                        change.get("status", "UNKNOWN"),
+                        change.get("_current_revision_number", 1),
+                        change.get("owner", {}).get("name", "Unknown"),
+                        base_url,
+                        topic=change.get("topic", ""),
+                        hashtags=change.get("hashtags", []),
+                        updated=change.get("updated", ""),
+                    )
+            if topic_discovered:
+                if progress:
+                    print(
+                        f"Discovered {len(topic_discovered)} changes"
+                        f" via topic '{anchor_topic}'...",
+                        end="", file=sys.stderr, flush=True,
+                    )
+                _fetch_revisions_batch(
+                    sorted(topic_discovered), collect_parents=True,
                 )
-                # Topic, hashtags, and updated timestamp (free from batch query)
-                if cn in nodes:
-                    nodes[cn]["topic"] = change.get("topic", "")
-                    nodes[cn]["hashtags"] = change.get("hashtags", [])
-                    nodes[cn]["updated"] = change.get("updated", "")
-        except Exception as e:
-            if progress:
-                print(f" (batch {batch_idx} error: {e})", end="",
-                      file=sys.stderr, flush=True)
+                if progress:
+                    print(
+                        f" {len(commit_to_change_ps)} total commits"
+                        " mapped.", file=sys.stderr, flush=True,
+                    )
+        except Exception:
+            pass
 
-    if progress:
-        print(f" {len(commit_to_change_ps)} commits mapped.", file=sys.stderr)
+    # 3a-iii. Discover children of discovered nodes by fetching their
+    #         /related chains. This finds changes like 64620 that
+    #         depend on topic-discovered nodes (e.g., 62316) but have
+    #         no topic themselves.
+    all_discovered = set(nodes.keys()) - set(e["cn"] for e in raw_entries)
+    child_discovered: set[int] = set()
+    for dcn in sorted(all_discovered):
+        if nodes[dcn]["status"] == "ABANDONED":
+            continue
+        try:
+            resp = client.rest.get(
+                f"/changes/{dcn}/revisions/current/related"
+            )
+            for rel in resp.get("changes", []):
+                rcn = rel.get("_change_number", 0)
+                if not rcn or rcn in nodes:
+                    continue
+                status = rel.get("status", "UNKNOWN")
+                if status == "MERGED":
+                    continue
+                ci = rel.get("commit", {})
+                child_discovered.add(rcn)
+                nodes[rcn] = _make_node(
+                    rcn, ci.get("subject", ""), status,
+                    rel.get("_current_revision_number", 1),
+                    ci.get("author", {}).get("name", "Unknown"),
+                    base_url,
+                )
+        except Exception:
+            pass
+    if child_discovered:
+        if progress:
+            print(
+                f"Discovered {len(child_discovered)} children of"
+                " discovered nodes...",
+                end="", file=sys.stderr, flush=True,
+            )
+        _fetch_revisions_batch(
+            sorted(child_discovered), collect_parents=True,
+        )
+        if progress:
+            print(
+                f" {len(commit_to_change_ps)} total commits mapped.",
+                file=sys.stderr, flush=True,
+            )
+
+    # 3a-iv. Remove discovered changes that are MERGED — these are
+    #         git ancestors (commits on lustre-master the series is
+    #         based on), not part of the actual patch series.
+    merged_discovered = [
+        cn for cn in nodes
+        if cn not in set(e["cn"] for e in raw_entries)
+        and nodes[cn]["status"] == "MERGED"
+    ]
+    for cn in merged_discovered:
+        del nodes[cn]
+    if merged_discovered and progress:
+        print(
+            f"  (filtered {len(merged_discovered)} merged ancestors)",
+            file=sys.stderr,
+        )
 
     # 3b. Attach review info to nodes (with comment count from batch query)
     for cn, node in nodes.items():
@@ -485,37 +680,117 @@ def build_graph(
         if progress:
             print(" done.", file=sys.stderr)
 
-    # 4. Build edges by resolving parent commits
+    # 4. Build edges.
+    #    First from /related raw_entries (guaranteed chain edges),
+    #    then from revision_parents (stale branches from old patchsets).
     edges: list[dict[str, Any]] = []
     seen_edges: set[tuple[int, int]] = set()
 
+    def _add_edge(parent_cn: int, child_cn: int, parent_ps: int) -> None:
+        if parent_cn == child_cn:
+            return
+        if parent_cn not in nodes or child_cn not in nodes:
+            return
+        edge_key = (parent_cn, child_cn)
+        if edge_key in seen_edges:
+            return
+        seen_edges.add(edge_key)
+        parent_latest = nodes[parent_cn]["current_patchset"]
+        edges.append({
+            "from": parent_cn,
+            "to": child_cn,
+            "parent_patchset": parent_ps,
+            "parent_latest": parent_latest,
+            "is_stale": parent_ps < parent_latest,
+        })
+
+    # 4a. Edges from /related entries (core chain)
     for entry in raw_entries:
-        child_cn = entry["cn"]
         parent_commit = entry["parent_commit"]
-        if not parent_commit:
+        if not parent_commit or parent_commit not in commit_to_change_ps:
             continue
+        parent_cn, parent_ps = commit_to_change_ps[parent_commit]
+        _add_edge(parent_cn, entry["cn"], parent_ps)
 
-        # Look up which change/patchset the parent commit belongs to
-        if parent_commit in commit_to_change_ps:
-            parent_cn, parent_ps = commit_to_change_ps[parent_commit]
-            if parent_cn not in nodes:
-                continue  # Parent is outside our related set
-            if parent_cn == child_cn:
-                continue  # Self-reference
+    # 4b. Edges from revision parents — only where at least one end is
+    #     a discovered change (not in the original /related set). This
+    #     connects discovered nodes to the graph without adding cross-
+    #     connections between /related changes from old patchset history.
+    related_cns = set(e["cn"] for e in raw_entries)
+    for child_hash, parent_hash in revision_parents.items():
+        if not parent_hash:
+            continue
+        if child_hash not in commit_to_change_ps:
+            continue
+        if parent_hash not in commit_to_change_ps:
+            continue
+        child_cn, _child_ps = commit_to_change_ps[child_hash]
+        parent_cn, parent_ps = commit_to_change_ps[parent_hash]
+        # Skip if both ends are from /related (already connected in 4a)
+        if child_cn in related_cns and parent_cn in related_cns:
+            continue
+        _add_edge(parent_cn, child_cn, parent_ps)
 
-            edge_key = (parent_cn, child_cn)
-            if edge_key in seen_edges:
-                continue
-            seen_edges.add(edge_key)
+    # 4c. Remove edges that form cycles. Old patchset dependencies can
+    #     create circular references (A depended on B in ps3, B depended
+    #     on A in ps5). Break cycles by removing stale edges.
+    #     Uses Kahn's algorithm (topological sort) to find all edges
+    #     participating in cycles, then removes the stale ones.
+    removed_cycle_edges = 0
+    for _ in range(50):  # iterate until no cycles remain
+        adj: dict[int, set[int]] = {}
+        for e in edges:
+            adj.setdefault(e["from"], set()).add(e["to"])
+            adj.setdefault(e["to"], set())
 
-            parent_latest = nodes[parent_cn]["current_patchset"]
-            edges.append({
-                "from": parent_cn,
-                "to": child_cn,
-                "parent_patchset": parent_ps,
-                "parent_latest": parent_latest,
-                "is_stale": parent_ps < parent_latest,
-            })
+        # Kahn's: find all nodes NOT in any cycle (can be topo-sorted)
+        in_degree: dict[int, int] = {n: 0 for n in adj}
+        for u in adj:
+            for v in adj[u]:
+                in_degree[v] = in_degree.get(v, 0) + 1
+
+        queue = [n for n, d in in_degree.items() if d == 0]
+        visited: set[int] = set()
+        while queue:
+            n = queue.pop()
+            visited.add(n)
+            for v in adj.get(n, ()):
+                in_degree[v] -= 1
+                if in_degree[v] == 0:
+                    queue.append(v)
+
+        # Nodes NOT visited are in cycles
+        cycle_nodes = set(adj.keys()) - visited
+        if not cycle_nodes:
+            break
+
+        # Find a stale edge between cycle nodes and remove it
+        removed_one = False
+        # Prefer removing stale edges
+        for i, e in enumerate(edges):
+            if (e["from"] in cycle_nodes and e["to"] in cycle_nodes
+                    and e["is_stale"]):
+                edges.pop(i)
+                removed_cycle_edges += 1
+                removed_one = True
+                break
+        if not removed_one:
+            # No stale edge in cycle; remove any cycle edge
+            for i, e in enumerate(edges):
+                if (e["from"] in cycle_nodes
+                        and e["to"] in cycle_nodes):
+                    edges.pop(i)
+                    removed_cycle_edges += 1
+                    removed_one = True
+                    break
+        if not removed_one:
+            break
+
+    if removed_cycle_edges and progress:
+        print(
+            f"  (removed {removed_cycle_edges} edges to break cycles)",
+            file=sys.stderr,
+        )
 
     # 5. Stats
     status_counts: dict[str, int] = {}
@@ -1758,6 +2033,37 @@ network.on('doubleClick', function(params) {
         const node = nodeMap[params.nodes[0]];
         if (node) window.open(node.url, '_blank');
     }
+});
+
+// Middle-click (double) opens in background tab
+let middleClickTimer = null;
+container.addEventListener('auxclick', function(e) {
+    if (e.button !== 1) return; // middle button only
+    e.preventDefault();
+    if (middleClickTimer) {
+        // Double middle-click
+        clearTimeout(middleClickTimer);
+        middleClickTimer = null;
+        const pos = network.DOMtoCanvas({ x: e.offsetX, y: e.offsetY });
+        const nodeId = network.getNodeAt({ x: e.offsetX, y: e.offsetY });
+        const node = nodeId != null ? nodeMap[nodeId] : null;
+        if (node) {
+            // Open in background: create a link with no focus
+            const a = document.createElement('a');
+            a.href = node.url;
+            a.target = '_blank';
+            a.rel = 'noopener';
+            // Simulate Ctrl+click to hint background tab
+            const evt = new MouseEvent('click', { ctrlKey: true, metaKey: true, bubbles: true });
+            a.dispatchEvent(evt);
+        }
+    } else {
+        middleClickTimer = setTimeout(() => { middleClickTimer = null; }, 400);
+    }
+});
+// Prevent middle-click auto-scroll
+container.addEventListener('mousedown', function(e) {
+    if (e.button === 1) e.preventDefault();
 });
 
 // ─── CONTROLS ───
