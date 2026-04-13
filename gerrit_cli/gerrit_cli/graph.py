@@ -19,6 +19,7 @@ these orphans to the correct parent change at the correct (stale) patchset.
 
 import json
 import os
+import re
 import sys
 import tempfile
 from typing import Any
@@ -52,8 +53,6 @@ def _extract_ci_links(
 
     Only looks at messages for the given patchset number.
     """
-    import re
-
     jenkins_url = ""
     maloo_url = ""
 
@@ -298,7 +297,6 @@ def _make_node(
     updated: str = "",
 ) -> dict[str, Any]:
     """Create a node dict for the graph."""
-    import re
     if not ticket:
         m = re.match(r"(LU-\d+)", subject)
         ticket = m.group(1) if m else ""
@@ -320,6 +318,85 @@ def _make_node(
     }
 
 
+def _collect_revisions(
+    change: dict[str, Any],
+    ctps_out: dict[str, tuple[int, int]],
+    rev_parents_out: dict[str, str] | None = None,
+) -> None:
+    """Walk a change's revisions, populating commit->(cn,ps) and optionally
+    commit->parent_commit maps."""
+    cn = change.get("_number", 0)
+    for rev_hash, rev_info in change.get("revisions", {}).items():
+        ps = rev_info.get("_number", 0)
+        ctps_out[rev_hash] = (cn, ps)
+        if rev_parents_out is not None:
+            ci = rev_info.get("commit", {})
+            parents = ci.get("parents", [])
+            if parents:
+                rev_parents_out[rev_hash] = parents[0].get("commit", "")
+
+
+def _update_node_meta(node: dict[str, Any], change: dict[str, Any]) -> None:
+    """Copy topic/hashtags/updated from a change payload onto a node."""
+    node["topic"] = change.get("topic", "")
+    node["hashtags"] = change.get("hashtags", [])
+    node["updated"] = change.get("updated", "")
+
+
+def _break_cycles(edges: list[dict[str, Any]]) -> int:
+    """Remove edges participating in cycles. Returns count removed.
+
+    Old patchset dependencies can create circular references (A depended
+    on B in ps3, B depended on A in ps5). Uses Kahn's algorithm to find
+    nodes not in any cycle; edges between remaining (cycle) nodes are
+    removed, preferring stale edges.
+    """
+    removed = 0
+    for _ in range(50):
+        adj: dict[int, set[int]] = {}
+        for e in edges:
+            adj.setdefault(e["from"], set()).add(e["to"])
+            adj.setdefault(e["to"], set())
+
+        in_degree: dict[int, int] = {n: 0 for n in adj}
+        for u in adj:
+            for v in adj[u]:
+                in_degree[v] = in_degree.get(v, 0) + 1
+
+        queue = [n for n, d in in_degree.items() if d == 0]
+        visited: set[int] = set()
+        while queue:
+            n = queue.pop()
+            visited.add(n)
+            for v in adj.get(n, ()):
+                in_degree[v] -= 1
+                if in_degree[v] == 0:
+                    queue.append(v)
+
+        cycle_nodes = set(adj.keys()) - visited
+        if not cycle_nodes:
+            break
+
+        removed_one = False
+        for i, e in enumerate(edges):
+            if (e["from"] in cycle_nodes and e["to"] in cycle_nodes
+                    and e["is_stale"]):
+                edges.pop(i)
+                removed += 1
+                removed_one = True
+                break
+        if not removed_one:
+            for i, e in enumerate(edges):
+                if e["from"] in cycle_nodes and e["to"] in cycle_nodes:
+                    edges.pop(i)
+                    removed += 1
+                    removed_one = True
+                    break
+        if not removed_one:
+            break
+    return removed
+
+
 def build_graph(
     client: GerritCommentsClient,
     change_number: int,
@@ -327,8 +404,10 @@ def build_graph(
     progress: bool = True,
     fetch_details: bool = True,
     fetch_comments: bool = False,
-    include_topic: bool = False,
-    include_hashtag: bool = False,
+    include_topic: bool = True,
+    include_hashtag: bool = True,
+    extra_topics: list[str] | None = None,
+    extra_hashtags: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build the full series graph with stale branch information.
 
@@ -339,10 +418,11 @@ def build_graph(
         fetch_comments: If True, fetch detailed inline comments per
             change (requires individual API calls, can be slow for
             large series). Implies fetch_details.
-        include_topic: If True, also search for changes sharing the
-            anchor's topic and display them as SEPARATE series alongside
-            the main one (not connected to the main chain).
+        include_topic: If True (default), include series sharing the
+            anchor's topic as SEPARATE trees alongside the main one.
         include_hashtag: Same as include_topic but for hashtags.
+        extra_topics: Additional topic names to search for and include.
+        extra_hashtags: Additional hashtag names to search for and include.
 
     Returns a dict ready to be embedded as JSON in the HTML template.
     """
@@ -424,18 +504,10 @@ def build_graph(
                 )
                 for change in result:
                     cn = change.get("_number", 0)
-                    for rev_hash, rev_info in change.get(
-                        "revisions", {}
-                    ).items():
-                        ps = rev_info.get("_number", 0)
-                        commit_to_change_ps[rev_hash] = (cn, ps)
-                        if collect_parents:
-                            ci = rev_info.get("commit", {})
-                            parents = ci.get("parents", [])
-                            if parents:
-                                revision_parents[rev_hash] = (
-                                    parents[0].get("commit", "")
-                                )
+                    _collect_revisions(
+                        change, commit_to_change_ps,
+                        revision_parents if collect_parents else None,
+                    )
                     labels_by_cn[cn] = _parse_labels(
                         change.get("labels", {})
                     )
@@ -443,9 +515,7 @@ def build_graph(
                         "unresolved_comment_count", 0
                     )
                     if cn in nodes:
-                        nodes[cn]["topic"] = change.get("topic", "")
-                        nodes[cn]["hashtags"] = change.get("hashtags", [])
-                        nodes[cn]["updated"] = change.get("updated", "")
+                        _update_node_meta(nodes[cn], change)
             except Exception as e:
                 if progress:
                     print(f" (batch {batch_idx} error: {e})", end="",
@@ -648,61 +718,8 @@ def build_graph(
             continue
         _add_edge(parent_cn, child_cn, parent_ps)
 
-    # 4c. Remove edges that form cycles. Old patchset dependencies can
-    #     create circular references (A depended on B in ps3, B depended
-    #     on A in ps5). Break cycles by removing stale edges.
-    #     Uses Kahn's algorithm (topological sort) to find all edges
-    #     participating in cycles, then removes the stale ones.
-    removed_cycle_edges = 0
-    for _ in range(50):  # iterate until no cycles remain
-        adj: dict[int, set[int]] = {}
-        for e in edges:
-            adj.setdefault(e["from"], set()).add(e["to"])
-            adj.setdefault(e["to"], set())
-
-        # Kahn's: find all nodes NOT in any cycle (can be topo-sorted)
-        in_degree: dict[int, int] = {n: 0 for n in adj}
-        for u in adj:
-            for v in adj[u]:
-                in_degree[v] = in_degree.get(v, 0) + 1
-
-        queue = [n for n, d in in_degree.items() if d == 0]
-        visited: set[int] = set()
-        while queue:
-            n = queue.pop()
-            visited.add(n)
-            for v in adj.get(n, ()):
-                in_degree[v] -= 1
-                if in_degree[v] == 0:
-                    queue.append(v)
-
-        # Nodes NOT visited are in cycles
-        cycle_nodes = set(adj.keys()) - visited
-        if not cycle_nodes:
-            break
-
-        # Find a stale edge between cycle nodes and remove it
-        removed_one = False
-        # Prefer removing stale edges
-        for i, e in enumerate(edges):
-            if (e["from"] in cycle_nodes and e["to"] in cycle_nodes
-                    and e["is_stale"]):
-                edges.pop(i)
-                removed_cycle_edges += 1
-                removed_one = True
-                break
-        if not removed_one:
-            # No stale edge in cycle; remove any cycle edge
-            for i, e in enumerate(edges):
-                if (e["from"] in cycle_nodes
-                        and e["to"] in cycle_nodes):
-                    edges.pop(i)
-                    removed_cycle_edges += 1
-                    removed_one = True
-                    break
-        if not removed_one:
-            break
-
+    # 4c. Remove edges that form cycles (from old patchset dependencies).
+    removed_cycle_edges = _break_cycles(edges)
     if removed_cycle_edges and progress:
         print(
             f"  (removed {removed_cycle_edges} edges to break cycles)",
@@ -812,23 +829,11 @@ def build_graph(
                 )
                 for change in result:
                     cn = change.get("_number", 0)
-                    for rh, ri in change.get("revisions", {}).items():
-                        ps = ri.get("_number", 0)
-                        group_ctps[rh] = (cn, ps)
-                        ci = ri.get("commit", {})
-                        parents = ci.get("parents", [])
-                        if parents:
-                            group_rev_parents[rh] = (
-                                parents[0].get("commit", "")
-                            )
+                    _collect_revisions(
+                        change, group_ctps, group_rev_parents,
+                    )
                     if cn in group_nodes:
-                        group_nodes[cn]["topic"] = change.get("topic", "")
-                        group_nodes[cn]["hashtags"] = change.get(
-                            "hashtags", []
-                        )
-                        group_nodes[cn]["updated"] = change.get(
-                            "updated", ""
-                        )
+                        _update_node_meta(group_nodes[cn], change)
                         lbl = _parse_labels(change.get("labels", {}))
                         lbl["unresolved_count"] = change.get(
                             "unresolved_comment_count", 0
@@ -917,11 +922,25 @@ def build_graph(
     search_labels: list[tuple[str, str]] = []
     anchor_topic = nodes.get(change_number, {}).get("topic", "")
     anchor_hashtags = nodes.get(change_number, {}).get("hashtags", []) or []
+    topics_to_search: list[str] = []
     if include_topic and anchor_topic:
-        search_labels.append((f"topic:{anchor_topic}", f"topic {anchor_topic}"))
+        topics_to_search.append(anchor_topic)
+    topics_to_search.extend(extra_topics or [])
+    hashtags_to_search: list[str] = []
     if include_hashtag:
-        for ht in anchor_hashtags:
-            search_labels.append((f"hashtag:{ht}", f"hashtag {ht}"))
+        hashtags_to_search.extend(anchor_hashtags)
+    hashtags_to_search.extend(extra_hashtags or [])
+    # Dedup while preserving order
+    seen_t: set[str] = set()
+    for t in topics_to_search:
+        if t and t not in seen_t:
+            seen_t.add(t)
+            search_labels.append((f"topic:{t}", f"topic {t}"))
+    seen_h: set[str] = set()
+    for h in hashtags_to_search:
+        if h and h not in seen_h:
+            seen_h.add(h)
+            search_labels.append((f"hashtag:{h}", f"hashtag {h}"))
 
     for query, label in search_labels:
         try:
@@ -959,6 +978,10 @@ def build_graph(
 
     stale_edges = sum(1 for e in edges if e["is_stale"])
     tickets = sorted(set(n["ticket"] for n in nodes.values() if n["ticket"]))
+    from datetime import datetime
+    generated_at = datetime.now().astimezone().strftime(
+        "%Y-%m-%d %I:%M:%S %p %Z"
+    )
 
     return {
         "anchor": change_number,
@@ -966,6 +989,7 @@ def build_graph(
         "nodes": list(nodes.values()),
         "edges": edges,
         "separate_groups": separate_groups,
+        "generated_at": generated_at,
         "stats": {
             "node_count": len(nodes),
             "edge_count": len(edges),
@@ -973,6 +997,7 @@ def build_graph(
             "stale_edge_count": stale_edges,
             "tickets": tickets,
             "separate_group_count": len(separate_groups),
+            "generated_at": generated_at,
         },
     }
 
@@ -1032,6 +1057,7 @@ body {
     background: var(--bg-surface); padding: 8px 16px;
     display: flex; align-items: center; gap: 16px;
     border-bottom: 1px solid var(--border); flex-shrink: 0; flex-wrap: wrap;
+    position: relative;
 }
 .topbar h1 { font-size: 15px; color: var(--accent); white-space: nowrap; }
 .stats { display: flex; gap: 10px; font-size: 12px; }
@@ -1200,15 +1226,15 @@ body.light .sbadge-ABANDONED { background: #8b949e; color: #fff; }
         <div class="legend-item"><span class="legend-dot" style="background:#9b2d6e"></span> Other -1</div>
         <div class="legend-item"><span class="legend-dot" style="background:#6e40c9"></span> Merged</div>
         <div class="legend-item"><span class="legend-dot" style="background:#484f58"></span> Abandoned</div>
-        <div class="legend-item"><span class="legend-dot" style="background:transparent;border:2px solid #a371f7"></span> Topic/hashtag series</div>
+        <div class="legend-item"><span class="legend-dot" style="background:transparent;border:2px solid #c9d1d9"></span> Topic/hashtag series</div>
         <span style="color:var(--text-muted);font-weight:600;margin-left:8px">Edges:</span>
         <div class="legend-item"><span class="legend-dot" style="background:#d29922"></span> Stale</div>
     </div>
+    <div id="generated-at" style="position:absolute;left:50%;transform:translateX(-50%);font-size:16px;font-weight:600;color:var(--text);pointer-events:none"></div>
 </div>
 
 <div class="controls">
     <label><input type="checkbox" id="chk-abandoned"> Show abandoned</label>
-    <label><input type="checkbox" id="chk-stale" checked> Show stale branches</label>
     <button class="primary" id="btn-reset">Reset</button>
     <button id="btn-fit">Fit</button>
     <button id="btn-focus">Focus</button>
@@ -1297,6 +1323,10 @@ document.getElementById('stats').innerHTML = [
 ].map(([l, c, cls]) => `<span class="badge ${cls}">${l}: ${c}</span>`).join('')
     + `<span style="color:#8b949e;font-size:11px">${G.stats.node_count} changes</span>`;
 
+if (G.generated_at) {
+    document.getElementById('generated-at').textContent = 'Generated: ' + G.generated_at;
+}
+
 // ─── STATE ───
 let currentAnchor = ANCHOR_INIT;
 let mainChain = new Set();
@@ -1357,7 +1387,6 @@ function computeLayout(anchorId) {
     mainChain = computeMainChain(anchorId);
     const positions = {};
     const showAbandoned = document.getElementById('chk-abandoned').checked;
-    const showStale = document.getElementById('chk-stale').checked;
 
     function isVisible(id) {
         const n = nodeMap[id];
@@ -1366,22 +1395,9 @@ function computeLayout(anchorId) {
         return true;
     }
 
-    // Should this node be shown? It's visible if:
-    // - it passes the filter
-    // - OR it's the anchor
-    // - OR it's on the main chain
-    // For stale branches: show if showStale OR on main chain
     function shouldShow(id) {
         if (id == anchorId) return true;
-        if (!isVisible(id)) return false;
-        // Check if the edge TO this node is stale
-        const eTo = edgesTo[id];
-        if (eTo && eTo.length > 0 && eTo[0].is_stale && !showStale) {
-            // This node is reached via a stale edge
-            // Only show if it's on the main chain
-            return mainChain.has(id);
-        }
-        return true;
+        return isVisible(id);
     }
 
     // Compute subtree width for each node (number of leaf descendants)
@@ -1811,7 +1827,6 @@ function reviewHealth(node) {
 function renderGraph() {
     const positions = computeLayout(currentAnchor);
     const showAbandoned = document.getElementById('chk-abandoned').checked;
-    const showStale = document.getElementById('chk-stale').checked;
 
     // Determine which nodes are in the "active subtree" (reachable from anchor going up)
     const activeUp = new Set();
@@ -1883,7 +1898,7 @@ function renderGraph() {
         // Separate-series nodes: override border to a distinct purple
         // so they're visually obvious as a different series.
         if (isSeparate) {
-            colors = Object.assign({}, colors, { border: '#a371f7' });
+            colors = Object.assign({}, colors, { border: '#c9d1d9' });
         }
 
         // If not on main chain and above anchor, slightly dim
@@ -2190,13 +2205,10 @@ function showNodeInfo(id) {
 
     // Respect current filter state
     const showAbandoned = document.getElementById('chk-abandoned').checked;
-    const showStale = document.getElementById('chk-stale').checked;
     function isListVisible(nid) {
         const n = nodeMap[nid];
         if (!n) return false;
         if (n.status === 'ABANDONED' && !showAbandoned) return false;
-        const eTo = edgesTo[nid];
-        if (eTo && eTo.length > 0 && eTo[0].is_stale && !showStale && !mainChain.has(nid)) return false;
         return true;
     }
 
@@ -2405,7 +2417,6 @@ function onFilterChange() {
     if (selectedNodeId !== null) { showNodeInfo(selectedNodeId); }
 }
 document.getElementById('chk-abandoned').addEventListener('change', onFilterChange);
-document.getElementById('chk-stale').addEventListener('change', onFilterChange);
 document.getElementById('btn-reset').addEventListener('click', function() {
     currentAnchor = ANCHOR_INIT;
     renderGraph();

@@ -949,16 +949,30 @@ def add_graph_parser(subparsers):
         help="Fetch detailed inline comments per change (slow, adds ~30s for large series)",
     )
     parser.add_argument(
-        "--include-topic",
+        "--skip-topic",
         action="store_true",
-        help="Search for changes sharing the anchor's topic and show "
-             "their series as separate trees alongside the main one",
+        help="Do NOT include series sharing the anchor's topic "
+             "(default: included)",
+    )
+    parser.add_argument(
+        "--skip-hashtag",
+        action="store_true",
+        help="Do NOT include series sharing the anchor's hashtags "
+             "(default: included)",
+    )
+    parser.add_argument(
+        "--include-topic",
+        default="",
+        metavar="TOPICS",
+        help="Comma-separated list of ADDITIONAL topics to include "
+             "(beyond the anchor's own topic)",
     )
     parser.add_argument(
         "--include-hashtag",
-        action="store_true",
-        help="Search for changes sharing the anchor's hashtags and show "
-             "their series as separate trees alongside the main one",
+        default="",
+        metavar="HASHTAGS",
+        help="Comma-separated list of ADDITIONAL hashtags to include "
+             "(beyond the anchor's own hashtags)",
     )
     parser.add_argument(
         "--pretty", "-p",

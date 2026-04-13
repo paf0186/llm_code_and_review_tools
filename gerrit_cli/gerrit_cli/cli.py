@@ -162,14 +162,20 @@ def cmd_graph(args):
         client = GerritCommentsClient()
         skip_details = getattr(args, "skip_ci_details", False)
         fetch_comments = getattr(args, "comments", False)
-        include_topic = getattr(args, "include_topic", False)
-        include_hashtag = getattr(args, "include_hashtag", False)
+        skip_topic = getattr(args, "skip_topic", False)
+        skip_hashtag = getattr(args, "skip_hashtag", False)
+        extra_topics_raw = getattr(args, "include_topic", "") or ""
+        extra_hashtags_raw = getattr(args, "include_hashtag", "") or ""
+        extra_topics = [t.strip() for t in extra_topics_raw.split(",") if t.strip()]
+        extra_hashtags = [h.strip() for h in extra_hashtags_raw.split(",") if h.strip()]
         graph_data = build_graph(
             client, change_number, base_url,
             fetch_details=not skip_details,
             fetch_comments=fetch_comments,
-            include_topic=include_topic,
-            include_hashtag=include_hashtag,
+            include_topic=not skip_topic,
+            include_hashtag=not skip_hashtag,
+            extra_topics=extra_topics,
+            extra_hashtags=extra_hashtags,
         )
 
         html_content = generate_html(graph_data)
