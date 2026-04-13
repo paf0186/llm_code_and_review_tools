@@ -327,6 +327,8 @@ def build_graph(
     progress: bool = True,
     fetch_details: bool = True,
     fetch_comments: bool = False,
+    include_topic: bool = False,
+    include_hashtag: bool = False,
 ) -> dict[str, Any]:
     """Build the full series graph with stale branch information.
 
@@ -337,6 +339,10 @@ def build_graph(
         fetch_comments: If True, fetch detailed inline comments per
             change (requires individual API calls, can be slow for
             large series). Implies fetch_details.
+        include_topic: If True, also search for changes sharing the
+            anchor's topic and display them as SEPARATE series alongside
+            the main one (not connected to the main chain).
+        include_hashtag: Same as include_topic but for hashtags.
 
     Returns a dict ready to be embedded as JSON in the HTML template.
     """
@@ -510,102 +516,13 @@ def build_graph(
                     file=sys.stderr, flush=True,
                 )
 
-    # 3a-ii. Topic-based discovery: find changes sharing the anchor's
-    #        topic that aren't already in our set. This catches children
-    #        (dependents) that are no longer in the /related chain.
-    anchor_topic = nodes.get(change_number, {}).get("topic", "")
-    if anchor_topic:
-        try:
-            result = client.rest.get(
-                f"/changes/?q={quote(f'topic:{anchor_topic}', safe=':+')}"
-                f"&n=500"
-            )
-            topic_discovered: set[int] = set()
-            for change in result:
-                cn = change.get("_number", 0)
-                if cn and cn not in nodes:
-                    topic_discovered.add(cn)
-                    nodes[cn] = _make_node(
-                        cn, change.get("subject", ""),
-                        change.get("status", "UNKNOWN"),
-                        change.get("_current_revision_number", 1),
-                        change.get("owner", {}).get("name", "Unknown"),
-                        base_url,
-                        topic=change.get("topic", ""),
-                        hashtags=change.get("hashtags", []),
-                        updated=change.get("updated", ""),
-                    )
-            if topic_discovered:
-                if progress:
-                    print(
-                        f"Discovered {len(topic_discovered)} changes"
-                        f" via topic '{anchor_topic}'...",
-                        end="", file=sys.stderr, flush=True,
-                    )
-                _fetch_revisions_batch(
-                    sorted(topic_discovered), collect_parents=True,
-                )
-                if progress:
-                    print(
-                        f" {len(commit_to_change_ps)} total commits"
-                        " mapped.", file=sys.stderr, flush=True,
-                    )
-        except Exception:
-            pass
-
-    # 3a-iii. Discover children of discovered nodes by fetching their
-    #         /related chains. This finds changes like 64620 that
-    #         depend on topic-discovered nodes (e.g., 62316) but have
-    #         no topic themselves.
-    all_discovered = set(nodes.keys()) - set(e["cn"] for e in raw_entries)
-    child_discovered: set[int] = set()
-    for dcn in sorted(all_discovered):
-        if nodes[dcn]["status"] == "ABANDONED":
-            continue
-        try:
-            resp = client.rest.get(
-                f"/changes/{dcn}/revisions/current/related"
-            )
-            for rel in resp.get("changes", []):
-                rcn = rel.get("_change_number", 0)
-                if not rcn or rcn in nodes:
-                    continue
-                status = rel.get("status", "UNKNOWN")
-                if status == "MERGED":
-                    continue
-                ci = rel.get("commit", {})
-                child_discovered.add(rcn)
-                nodes[rcn] = _make_node(
-                    rcn, ci.get("subject", ""), status,
-                    rel.get("_current_revision_number", 1),
-                    ci.get("author", {}).get("name", "Unknown"),
-                    base_url,
-                )
-        except Exception:
-            pass
-    if child_discovered:
-        if progress:
-            print(
-                f"Discovered {len(child_discovered)} children of"
-                " discovered nodes...",
-                end="", file=sys.stderr, flush=True,
-            )
-        _fetch_revisions_batch(
-            sorted(child_discovered), collect_parents=True,
-        )
-        if progress:
-            print(
-                f" {len(commit_to_change_ps)} total commits mapped.",
-                file=sys.stderr, flush=True,
-            )
-
-    # 3a-iv. Remove discovered changes that are MERGED — these are
-    #         git ancestors (commits on lustre-master the series is
-    #         based on), not part of the actual patch series.
+    # 3a-ii. Remove discovered changes that are MERGED — these are
+    #        git ancestors (commits on lustre-master the series is
+    #        based on), not part of the actual patch series.
+    related_set = set(e["cn"] for e in raw_entries)
     merged_discovered = [
         cn for cn in nodes
-        if cn not in set(e["cn"] for e in raw_entries)
-        and nodes[cn]["status"] == "MERGED"
+        if cn not in related_set and nodes[cn]["status"] == "MERGED"
     ]
     for cn in merged_discovered:
         del nodes[cn]
@@ -792,7 +709,249 @@ def build_graph(
             file=sys.stderr,
         )
 
-    # 5. Stats
+    # Tag all main series nodes with group 0
+    for n in nodes.values():
+        n["series_group"] = 0
+
+    # 5. Separate series from topic/hashtag search (opt-in).
+    #    For each matching change not already in the main series,
+    #    fetch its own /related chain and build a SEPARATE series
+    #    (no edges crossing into the main graph).
+    separate_groups: list[dict[str, Any]] = []  # [{label, node_ids}]
+
+    def _build_separate_series(
+        seed_cns: list[int], label: str,
+    ) -> None:
+        main_cns = set(nodes.keys())
+        # Track which seeds are already placed in some group
+        placed: set[int] = set()
+        # Also, seeds that are already in the main series should be skipped
+        seeds_new = [cn for cn in seed_cns if cn not in main_cns]
+        if not seeds_new:
+            return
+
+        for seed in seeds_new:
+            if seed in placed:
+                continue
+            # Fetch /related for this seed
+            try:
+                resp = client.rest.get(
+                    f"/changes/{seed}/revisions/current/related"
+                )
+                rel_entries = resp.get("changes", [])
+            except Exception:
+                rel_entries = []
+
+            # Parse entries into nodes for this group
+            group_nodes: dict[int, dict[str, Any]] = {}
+            group_raw: list[dict[str, Any]] = []
+            for entry in rel_entries:
+                ci = entry.get("commit", {})
+                commit_hash = ci.get("commit", "")
+                parents = ci.get("parents", [])
+                parent_hash = (
+                    parents[0].get("commit", "") if parents else ""
+                )
+                cn = entry.get("_change_number", 0)
+                if not cn or cn in main_cns:
+                    # Skip entries that are in the main series
+                    continue
+                latest = entry.get("_current_revision_number", 0) or 1
+                status = entry.get("status", "UNKNOWN")
+                subject = ci.get("subject", "")
+                author = ci.get("author", {}).get("name", "Unknown")
+                group_nodes[cn] = _make_node(
+                    cn, subject, status, latest, author, base_url,
+                )
+                group_raw.append({
+                    "cn": cn,
+                    "parent_commit": parent_hash,
+                    "commit": commit_hash,
+                })
+
+            if not group_nodes:
+                # Seed had no related or all were in main — make a
+                # single-node group for just this seed
+                if seed not in nodes:
+                    try:
+                        single = client.rest.get(
+                            f"/changes/?q=change:{seed}"
+                            "&o=CURRENT_REVISION&o=CURRENT_COMMIT"
+                        )
+                    except Exception:
+                        continue
+                    if not single:
+                        continue
+                    ch = single[0]
+                    latest = ch.get("_current_revision_number", 1)
+                    subject = ch.get("subject", "")
+                    status = ch.get("status", "UNKNOWN")
+                    author = ch.get("owner", {}).get("name", "Unknown")
+                    group_nodes[seed] = _make_node(
+                        seed, subject, status, latest, author, base_url,
+                        topic=ch.get("topic", ""),
+                        hashtags=ch.get("hashtags", []),
+                        updated=ch.get("updated", ""),
+                    )
+                else:
+                    continue
+
+            # Fetch revisions + commits for all group nodes (to build
+            # commit_to_change_ps and collect parent commits for
+            # cross-group stale edge detection)
+            group_ctps: dict[str, tuple[int, int]] = {}
+            group_rev_parents: dict[str, str] = {}
+            try:
+                q = " OR ".join(
+                    f"change:{c}" for c in group_nodes
+                )
+                result = client.rest.get(
+                    f"/changes/?q={quote(q, safe=':+ ')}"
+                    "&o=ALL_REVISIONS&o=ALL_COMMITS"
+                    "&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&n=500"
+                )
+                for change in result:
+                    cn = change.get("_number", 0)
+                    for rh, ri in change.get("revisions", {}).items():
+                        ps = ri.get("_number", 0)
+                        group_ctps[rh] = (cn, ps)
+                        ci = ri.get("commit", {})
+                        parents = ci.get("parents", [])
+                        if parents:
+                            group_rev_parents[rh] = (
+                                parents[0].get("commit", "")
+                            )
+                    if cn in group_nodes:
+                        group_nodes[cn]["topic"] = change.get("topic", "")
+                        group_nodes[cn]["hashtags"] = change.get(
+                            "hashtags", []
+                        )
+                        group_nodes[cn]["updated"] = change.get(
+                            "updated", ""
+                        )
+                        lbl = _parse_labels(change.get("labels", {}))
+                        lbl["unresolved_count"] = change.get(
+                            "unresolved_comment_count", 0
+                        )
+                        group_nodes[cn]["review"] = lbl
+            except Exception:
+                pass
+
+            # Build edges for this group from raw_entries
+            group_edges: list[dict[str, Any]] = []
+            group_seen: set[tuple[int, int]] = set()
+            for entry in group_raw:
+                pc = entry["parent_commit"]
+                child_cn = entry["cn"]
+                if not pc or pc not in group_ctps:
+                    continue
+                parent_cn, parent_ps = group_ctps[pc]
+                if parent_cn not in group_nodes:
+                    continue
+                if parent_cn == child_cn:
+                    continue
+                key = (parent_cn, child_cn)
+                if key in group_seen:
+                    continue
+                group_seen.add(key)
+                parent_latest = group_nodes[parent_cn][
+                    "current_patchset"
+                ]
+                group_edges.append({
+                    "from": parent_cn,
+                    "to": child_cn,
+                    "parent_patchset": parent_ps,
+                    "parent_latest": parent_latest,
+                    "is_stale": parent_ps < parent_latest,
+                })
+
+            # Build cross-group stale edges: for each group node's
+            # revisions, if the parent commit resolves to a main-
+            # series node, add a stale edge main → group_node.
+            # This hooks separate series back into the main tree.
+            group_commit_set = set(group_ctps.keys())
+            for child_hash, parent_hash in group_rev_parents.items():
+                if not parent_hash:
+                    continue
+                if child_hash not in group_ctps:
+                    continue
+                child_cn, _ = group_ctps[child_hash]
+                if child_cn not in group_nodes:
+                    continue
+                # Is parent in main series?
+                if parent_hash not in commit_to_change_ps:
+                    continue
+                parent_cn, parent_ps = commit_to_change_ps[parent_hash]
+                if parent_cn not in nodes:
+                    continue
+                if nodes[parent_cn].get("series_group", 0) != 0:
+                    continue  # parent must be in main series
+                key = (parent_cn, child_cn)
+                if key in group_seen:
+                    continue
+                group_seen.add(key)
+                parent_latest = nodes[parent_cn]["current_patchset"]
+                group_edges.append({
+                    "from": parent_cn,
+                    "to": child_cn,
+                    "parent_patchset": parent_ps,
+                    "parent_latest": parent_latest,
+                    "is_stale": parent_ps < parent_latest,
+                })
+
+            # Assign group id and add to main collections
+            group_id = len(separate_groups) + 1
+            group_label = f"{label}: {min(group_nodes.keys())}"
+            for cn, node in group_nodes.items():
+                node["series_group"] = group_id
+                node["review"] = node.get("review") or _empty_review()
+                nodes[cn] = node
+                placed.add(cn)
+            edges.extend(group_edges)
+            separate_groups.append({
+                "id": group_id,
+                "label": group_label,
+                "node_ids": sorted(group_nodes.keys()),
+            })
+
+    search_labels: list[tuple[str, str]] = []
+    anchor_topic = nodes.get(change_number, {}).get("topic", "")
+    anchor_hashtags = nodes.get(change_number, {}).get("hashtags", []) or []
+    if include_topic and anchor_topic:
+        search_labels.append((f"topic:{anchor_topic}", f"topic {anchor_topic}"))
+    if include_hashtag:
+        for ht in anchor_hashtags:
+            search_labels.append((f"hashtag:{ht}", f"hashtag {ht}"))
+
+    for query, label in search_labels:
+        try:
+            result = client.rest.get(
+                f"/changes/?q={quote(query, safe=':+ ')}&n=500"
+            )
+            seed_cns = [
+                ch.get("_number", 0) for ch in result
+                if ch.get("_number")
+            ]
+        except Exception:
+            seed_cns = []
+        if progress and seed_cns:
+            n_new = sum(1 for c in seed_cns if c not in nodes)
+            print(
+                f"Searching {label}: {len(seed_cns)} matches"
+                f" ({n_new} outside main series)...",
+                file=sys.stderr,
+            )
+        _build_separate_series(seed_cns, label)
+
+    if separate_groups and progress:
+        total = sum(len(g["node_ids"]) for g in separate_groups)
+        print(
+            f"Built {len(separate_groups)} separate series"
+            f" ({total} nodes total).",
+            file=sys.stderr,
+        )
+
+    # 6. Stats
     status_counts: dict[str, int] = {}
     for n in nodes.values():
         s = n["status"]
@@ -806,12 +965,14 @@ def build_graph(
         "base_url": base_url,
         "nodes": list(nodes.values()),
         "edges": edges,
+        "separate_groups": separate_groups,
         "stats": {
             "node_count": len(nodes),
             "edge_count": len(edges),
             "status_counts": status_counts,
             "stale_edge_count": stale_edges,
             "tickets": tickets,
+            "separate_group_count": len(separate_groups),
         },
     }
 
@@ -1039,6 +1200,7 @@ body.light .sbadge-ABANDONED { background: #8b949e; color: #fff; }
         <div class="legend-item"><span class="legend-dot" style="background:#9b2d6e"></span> Other -1</div>
         <div class="legend-item"><span class="legend-dot" style="background:#6e40c9"></span> Merged</div>
         <div class="legend-item"><span class="legend-dot" style="background:#484f58"></span> Abandoned</div>
+        <div class="legend-item"><span class="legend-dot" style="background:transparent;border:2px solid #a371f7"></span> Topic/hashtag series</div>
         <span style="color:var(--text-muted);font-weight:600;margin-left:8px">Edges:</span>
         <div class="legend-item"><span class="legend-dot" style="background:#d29922"></span> Stale</div>
     </div>
@@ -1408,6 +1570,144 @@ function computeLayout(anchorId) {
         cursor = parentOf[cursor];
     }
 
+    // Layout separate series: if a group has cross-group edges to
+    // main-series nodes, its members are already reachable via
+    // childrenOf and layoutTree has placed them as stale side
+    // branches. For groups with NO connection to main (truly
+    // disconnected), place them in columns to the far right.
+    const groups = G.separate_groups || [];
+    if (groups.length > 0) {
+        let mainMaxX = 0;
+        for (const pos of Object.values(positions)) {
+            mainMaxX = Math.max(mainMaxX, pos.x);
+        }
+        let fallbackX = mainMaxX + NODE_W * 2;
+
+        for (const group of groups) {
+            const visibleIds = group.node_ids.filter(
+                id => nodeMap[id] && isVisible(id)
+            );
+            if (visibleIds.length === 0) continue;
+
+            // Check if ANY node in this group was already placed
+            // via layoutTree (reachable through cross-group edges).
+            const alreadyPlaced = visibleIds.some(
+                id => positions[id] !== undefined
+            );
+            if (alreadyPlaced) {
+                // Let layoutTree handle the rest via childrenOf.
+                // Any unplaced nodes fall through to the fixup below.
+                continue;
+            }
+
+            // Truly disconnected group: place as a vertical column
+            // to the far right.
+            const groupSet = new Set(group.node_ids);
+            const groupParent = {};
+            const groupChildren = {};
+            for (const id of visibleIds) groupChildren[id] = [];
+            for (const e of G.edges) {
+                if (groupSet.has(e.from) && groupSet.has(e.to)) {
+                    groupParent[e.to] = e.from;
+                    groupChildren[e.from].push(e.to);
+                }
+            }
+            const roots = visibleIds.filter(id => !groupParent[id]);
+            const levels = {};
+            const bfsQ = [];
+            for (const r of roots) {
+                levels[r] = 0;
+                bfsQ.push(r);
+            }
+            while (bfsQ.length > 0) {
+                const n = bfsQ.shift();
+                for (const c of (groupChildren[n] || [])) {
+                    if (!(c in levels)) {
+                        levels[c] = levels[n] + 1;
+                        bfsQ.push(c);
+                    }
+                }
+            }
+            for (const id of visibleIds) {
+                if (!(id in levels)) levels[id] = 0;
+            }
+            for (const id of visibleIds) {
+                positions[id] = {
+                    x: fallbackX,
+                    y: -levels[id] * LEVEL_H,
+                };
+            }
+            fallbackX += NODE_W * 1.5;
+        }
+
+        // Fixup: any group nodes whose group had SOME reachable
+        // nodes but this particular one wasn't placed (e.g. the
+        // cross-group edge went to a different node in the group)
+        // — place them near their parent/child if reachable.
+        for (const group of groups) {
+            for (const id of group.node_ids) {
+                if (positions[id] !== undefined) continue;
+                if (!nodeMap[id] || !isVisible(id)) continue;
+                // Find a placed neighbor in same group
+                let neighborPos = null;
+                let neighborDir = 0;
+                for (const e of G.edges) {
+                    if (e.to === id && positions[e.from]) {
+                        neighborPos = positions[e.from];
+                        neighborDir = 1;  // child goes up
+                        break;
+                    }
+                    if (e.from === id && positions[e.to]) {
+                        neighborPos = positions[e.to];
+                        neighborDir = -1;  // parent goes down
+                        break;
+                    }
+                }
+                if (neighborPos) {
+                    let px = neighborPos.x;
+                    let py = neighborPos.y + neighborDir * LEVEL_H;
+                    // Shift right if occupied
+                    let tries = 0;
+                    while (tries < 20) {
+                        let occupied = false;
+                        for (const p of Object.values(positions)) {
+                            if (Math.abs(p.x - px) < NODE_W * 0.9
+                                    && Math.abs(p.y - py) < LEVEL_H * 0.6) {
+                                occupied = true; break;
+                            }
+                        }
+                        if (!occupied) break;
+                        px += NODE_W;
+                        tries++;
+                    }
+                    positions[id] = { x: px, y: py };
+                }
+            }
+        }
+    }
+
+    // Final collision avoidance: shift any nodes that ended up at
+    // exactly the same (x, y) as another node.
+    const occupied = new Map();
+    for (const [idStr, pos] of Object.entries(positions)) {
+        const key = pos.x + ',' + pos.y;
+        if (occupied.has(key)) {
+            // Shift this one right
+            let px = pos.x + NODE_W;
+            let tries = 0;
+            while (tries < 30) {
+                const k2 = px + ',' + pos.y;
+                if (!occupied.has(k2)) break;
+                px += NODE_W;
+                tries++;
+            }
+            positions[idStr] = { x: px, y: pos.y };
+            occupied.set(px + ',' + pos.y, idStr);
+        } else {
+            occupied.set(key, idStr);
+        }
+    }
+
     return positions;
 }
 
@@ -1523,6 +1823,28 @@ function renderGraph() {
     }
     markActiveUp(currentAnchor);
 
+    // Identify groups that are "merged" into the main tree: if any
+    // node in a group has a cross-group edge to a group 0 node, the
+    // whole group is considered merged (it's pulled into the main
+    // tree via that connection).
+    const mergedGroupIds = new Set();
+    for (const e of G.edges) {
+        const fromNode = nodeMap[e.from];
+        const toNode = nodeMap[e.to];
+        if (!fromNode || !toNode) continue;
+        const fg = fromNode.series_group || 0;
+        const tg = toNode.series_group || 0;
+        if (fg === 0 && tg > 0) mergedGroupIds.add(tg);
+        else if (tg === 0 && fg > 0) mergedGroupIds.add(fg);
+    }
+    const mergedGroupNodes = new Set();
+    for (const n of G.nodes) {
+        if ((n.series_group || 0) > 0
+                && mergedGroupIds.has(n.series_group)) {
+            mergedGroupNodes.add(n.id);
+        }
+    }
+
     // Build vis.js nodes
     const visNodes = [];
     const visEdges = [];
@@ -1535,7 +1857,12 @@ function renderGraph() {
         const isAnchor = id === currentAnchor;
         const isMain = mainChain.has(id);
         const isAbove = activeUp.has(id);
-        const isBase = !isAbove && !isAnchor;
+        // A group node that has a cross-group edge to the main tree
+        // is considered "merged" into main — don't mark as separate.
+        const isSeparate = (node.series_group || 0) > 0
+            && !mergedGroupNodes.has(id);
+        // Separate-group nodes aren't part of the base chain — color by status.
+        const isBase = !isAbove && !isAnchor && !isSeparate;
 
         const C = getColors();
         let colors;
@@ -1551,6 +1878,12 @@ function renderGraph() {
             else colors = C.STATUS.NEW;
         } else {
             colors = C.STATUS[node.status] || C.STATUS.NEW;
+        }
+
+        // Separate-series nodes: override border to a distinct purple
+        // so they're visually obvious as a different series.
+        if (isSeparate) {
+            colors = Object.assign({}, colors, { border: '#a371f7' });
         }
 
         // If not on main chain and above anchor, slightly dim
@@ -1621,7 +1954,7 @@ function renderGraph() {
                 size: 12,
                 face: 'monospace',
             },
-            borderWidth: isAnchor ? 4 : (isMain ? 2 : 1),
+            borderWidth: isAnchor ? 4 : (isSeparate ? 3 : (isMain ? 2 : 1)),
             opacity: opacity,
             // Custom data for click handler
             _isAnchor: isAnchor,

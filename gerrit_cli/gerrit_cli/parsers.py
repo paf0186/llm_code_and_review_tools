@@ -949,6 +949,18 @@ def add_graph_parser(subparsers):
         help="Fetch detailed inline comments per change (slow, adds ~30s for large series)",
     )
     parser.add_argument(
+        "--include-topic",
+        action="store_true",
+        help="Search for changes sharing the anchor's topic and show "
+             "their series as separate trees alongside the main one",
+    )
+    parser.add_argument(
+        "--include-hashtag",
+        action="store_true",
+        help="Search for changes sharing the anchor's hashtags and show "
+             "their series as separate trees alongside the main one",
+    )
+    parser.add_argument(
         "--pretty", "-p",
         action="store_true",
         help="Pretty-print JSON output",
