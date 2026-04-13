@@ -1333,30 +1333,66 @@ let mainChain = new Set();
 let selectedNodeId = null;
 
 // ─── MAIN CHAIN COMPUTATION ───
+const activeDescCache = {};
+function hasActiveDescendant(id) {
+    if (activeDescCache[id] !== undefined) return activeDescCache[id];
+    const n = nodeMap[id];
+    if (n && n.status !== 'ABANDONED') { activeDescCache[id] = true; return true; }
+    const kids = childrenOf[id] || [];
+    for (const k of kids) {
+        if (nodeMap[k] && hasActiveDescendant(k)) {
+            activeDescCache[id] = true;
+            return true;
+        }
+    }
+    activeDescCache[id] = false;
+    return false;
+}
+
 function computeMainChain(anchorId) {
     const chain = new Set();
     chain.add(anchorId);
 
-    // Walk upward: pick best child at each step
+    // Walk upward: pick best child at each step. Do NOT filter out abandoned
+    // children — we want to walk through abandoned patches if there are still
+    // active patches above them. Trailing abandoned tails are trimmed below.
     let cursor = anchorId;
+    const upward = [];
+    const seen = new Set([anchorId]);
     while (true) {
-        const kids = (childrenOf[cursor] || []).filter(id => {
-            const n = nodeMap[id];
-            return n && n.status !== 'ABANDONED';
-        });
+        const kids = (childrenOf[cursor] || []).filter(k => nodeMap[k] && !seen.has(k));
         if (kids.length === 0) break;
-        // Prefer non-stale edge, then most descendants
+        // Prefer: branch that leads to an active patch, then the branch
+        // with the most descendants (the dominant real chain), and finally
+        // non-stale edge as tiebreaker. Descendant count must beat
+        // staleness — otherwise a non-stale dead-end child wins over the
+        // long "real" chain whose entry edge happens to be stale.
         kids.sort((a, b) => {
+            const ha = hasActiveDescendant(a) ? 0 : 1;
+            const hb = hasActiveDescendant(b) ? 0 : 1;
+            if (ha !== hb) return ha - hb;
+            const dd = countDesc(b) - countDesc(a);
+            if (dd !== 0) return dd;
             const ea = edgeMap[cursor + '->' + a];
             const eb = edgeMap[cursor + '->' + b];
             const sa = ea ? (ea.is_stale ? 1 : 0) : 0;
             const sb = eb ? (eb.is_stale ? 1 : 0) : 0;
-            if (sa !== sb) return sa - sb;
-            return countDesc(b) - countDesc(a);
+            return sa - sb;
         });
-        chain.add(kids[0]);
+        upward.push(kids[0]);
+        seen.add(kids[0]);
         cursor = kids[0];
     }
+
+    // Trim trailing abandoned: keep the walk up to (and including) the
+    // highest non-abandoned node. Everything above that last active node
+    // is a purely-abandoned tail and stays hidden unless "Show abandoned".
+    let lastActive = -1;
+    for (let i = 0; i < upward.length; i++) {
+        const n = nodeMap[upward[i]];
+        if (n && n.status !== 'ABANDONED') lastActive = i;
+    }
+    for (let i = 0; i <= lastActive; i++) chain.add(upward[i]);
 
     // Walk downward: follow parent chain
     cursor = parentOf[anchorId];
@@ -1391,7 +1427,9 @@ function computeLayout(anchorId) {
     function isVisible(id) {
         const n = nodeMap[id];
         if (!n) return false;
-        if (n.status === 'ABANDONED' && !showAbandoned) return false;
+        // Abandoned nodes that bridge active patches in the main chain stay
+        // visible even when "Show abandoned" is off.
+        if (n.status === 'ABANDONED' && !showAbandoned && !mainChain.has(id)) return false;
         return true;
     }
 
@@ -2208,7 +2246,7 @@ function showNodeInfo(id) {
     function isListVisible(nid) {
         const n = nodeMap[nid];
         if (!n) return false;
-        if (n.status === 'ABANDONED' && !showAbandoned) return false;
+        if (n.status === 'ABANDONED' && !showAbandoned && !mainChain.has(nid)) return false;
         return true;
     }
 
