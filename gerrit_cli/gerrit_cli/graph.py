@@ -1253,6 +1253,7 @@ body.light .sbadge-ABANDONED { background: #8b949e; color: #fff; }
 
 <div class="controls">
     <label><input type="checkbox" id="chk-abandoned"> Show abandoned</label>
+    <label><input type="checkbox" id="chk-history"> Show historical parents</label>
     <button class="primary" id="btn-reset">Reset</button>
     <button id="btn-fit">Fit</button>
     <button id="btn-focus">Focus</button>
@@ -1927,6 +1928,7 @@ function renderGraph() {
     }
     markActiveUp(currentAnchor);
 
+
     // Build vis.js nodes
     const visNodes = [];
     const visEdges = [];
@@ -1964,8 +1966,8 @@ function renderGraph() {
             colors = C.STATUS[node.status] || C.STATUS.NEW;
         }
 
-        // Separate-series nodes: override border to a distinct purple
-        // so they're visually obvious as a different series.
+        // Separate-series nodes: distinctive light-grey border so
+        // they're visually obvious as a different series.
         if (isSeparate) {
             colors = Object.assign({}, colors, { border: '#c9d1d9' });
         }
@@ -2056,13 +2058,72 @@ function renderGraph() {
         });
     }
 
-    // Build vis.js edges
+    // Historical-parent suppression: a patch can have multiple
+    // incoming edges because its first-parent changed across rebases.
+    // Only the "current" dependency is usually meaningful, so by
+    // default we keep one best incoming edge per child:
+    //   - prefer a non-stale edge (the dependency still current)
+    //   - otherwise the edge with the highest parent_patchset
+    // Edges whose endpoints aren't visible in the current layout are
+    // excluded from the ranking — if the truly-current parent isn't
+    // rendered in this graph, we fall back to the most recent
+    // historical parent that IS visible so the child doesn't end up
+    // visually orphaned. A toggle restores the rest.
+    // Build a per-child set of "kept" from-node ids (not a set of
+    // edges, because G.edges can contain duplicate entries with the
+    // same from→to pair — suppressing by string key would then match
+    // the edge we meant to keep too). We then drop any edge whose
+    // from-node is not in keptSources for that child.
+    const showHistory = document.getElementById('chk-history').checked;
+    const keptSources = {};  // child id -> Set<from id>
+    if (!showHistory) {
+        const byChild = {};
+        for (const e of G.edges) {
+            if (!positions[e.from] || !positions[e.to]) continue;
+            // Dedupe by from-node so we rank each parent once.
+            (byChild[e.to] = byChild[e.to] || {})[e.from] = e;
+        }
+        for (const child in byChild) {
+            const uniq = Object.values(byChild[child]);
+            uniq.sort((a, b) => {
+                const sa = a.is_stale ? 1 : 0;
+                const sb = b.is_stale ? 1 : 0;
+                if (sa !== sb) return sa - sb;
+                if (b.parent_patchset !== a.parent_patchset) {
+                    return b.parent_patchset - a.parent_patchset;
+                }
+                if (b.parent_latest !== a.parent_latest) {
+                    return b.parent_latest - a.parent_latest;
+                }
+                return a.from - b.from;
+            });
+            keptSources[child] = new Set([uniq[0].from]);
+        }
+    }
+
+    // Build vis.js edges. Dedupe duplicate (from,to) pairs so a
+    // single edge is drawn even if G.edges lists it twice.
+    const drawnEdgeKeys = new Set();
     let edgeIdx = 0;
     for (const edge of G.edges) {
         if (!positions[edge.from] || !positions[edge.to]) continue;
+        if (!showHistory) {
+            const ks = keptSources[edge.to];
+            if (ks && !ks.has(edge.from)) continue;
+        }
+        const key = edge.from + '->' + edge.to;
+        if (drawnEdgeKeys.has(key)) continue;
+        drawnEdgeKeys.add(key);
 
         const isMainEdge = mainChain.has(edge.from) && mainChain.has(edge.to);
-        const isBase = !activeUp.has(edge.to);
+        // "Base" = edge leads into historical chain below the anchor.
+        // Separate-group nodes aren't part of the base chain even if
+        // they weren't reached by the upward walk — they're positioned
+        // via the separate-groups layout and should render in the
+        // normal palette, not the dim one.
+        const toNode = nodeMap[edge.to];
+        const toSeparate = toNode && (toNode.series_group || 0) > 0;
+        const isBase = !activeUp.has(edge.to) && !toSeparate;
 
         const C = getColors();
         let color, width, dashes;
@@ -2079,7 +2140,12 @@ function renderGraph() {
             width = 1;
             dashes = false;
         } else {
-            color = C.edgeSide;
+            // Non-stale edges that aren't on the main chain (separate
+            // series, side branches, cross-group links) still
+            // represent a real current dependency — render them in
+            // the main edge color, just thinner so the dominant chain
+            // still stands out.
+            color = C.edgeMain;
             width = 1.5;
             dashes = false;
         }
@@ -2487,6 +2553,7 @@ function onFilterChange() {
     if (selectedNodeId !== null) { showNodeInfo(selectedNodeId); }
 }
 document.getElementById('chk-abandoned').addEventListener('change', onFilterChange);
+document.getElementById('chk-history').addEventListener('change', onFilterChange);
 document.getElementById('btn-reset').addEventListener('click', function() {
     currentAnchor = ANCHOR_INIT;
     renderGraph();
