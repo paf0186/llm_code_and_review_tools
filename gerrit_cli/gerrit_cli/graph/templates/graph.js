@@ -868,9 +868,8 @@ function renderGraph() {
         }
     }
 
-    // Build vis.js edges. Dedupe duplicate (from,to) pairs so a
-    // single edge is drawn even if G.edges lists it twice.
-    const drawnEdgeKeys = new Set();
+    // Build vis.js edges. G.edges is already deduped in the Python
+    // builder, so each (from, to) pair appears at most once.
     let edgeIdx = 0;
     for (const edge of G.edges) {
         if (!positions[edge.from] || !positions[edge.to]) continue;
@@ -878,9 +877,6 @@ function renderGraph() {
             const ks = keptSources[edge.to];
             if (ks && !ks.has(edge.from)) continue;
         }
-        const key = edge.from + '->' + edge.to;
-        if (drawnEdgeKeys.has(key)) continue;
-        drawnEdgeKeys.add(key);
 
         const isMainEdge = mainChain.has(edge.from) && mainChain.has(edge.to);
         // "Base" = edge leads into historical chain below the anchor.

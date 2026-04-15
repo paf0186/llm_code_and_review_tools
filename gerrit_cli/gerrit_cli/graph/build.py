@@ -71,6 +71,11 @@ class BuildContext:
     labels_by_cn: dict[int, dict[str, Any]] = field(default_factory=dict)
     comment_count_by_cn: dict[int, int] = field(default_factory=dict)
     edges: list[dict[str, Any]] = field(default_factory=list)
+    # Tracks every (from, to) pair already added to `edges` across all
+    # stages (main + separate-series internal + cross-group). Makes
+    # duplicate-edge suppression a global invariant instead of
+    # something each helper has to reimplement locally.
+    seen_edges: set[tuple[int, int]] = field(default_factory=set)
     separate_groups: list[dict[str, Any]] = field(default_factory=list)
 
     def log(self, msg: str, end: str = "\n") -> None:
@@ -337,7 +342,6 @@ def _build_main_edges(ctx: BuildContext) -> None:
     """Produce edges for the main series from raw_entries (the
     guaranteed chain) and revision_parents (stale branches from old
     patchsets). Cycles get removed as a final step."""
-    seen_edges: set[tuple[int, int]] = set()
 
     def add_edge(parent_cn: int, child_cn: int, parent_ps: int) -> None:
         if parent_cn == child_cn:
@@ -345,9 +349,9 @@ def _build_main_edges(ctx: BuildContext) -> None:
         if parent_cn not in ctx.nodes or child_cn not in ctx.nodes:
             return
         key = (parent_cn, child_cn)
-        if key in seen_edges:
+        if key in ctx.seen_edges:
             return
-        seen_edges.add(key)
+        ctx.seen_edges.add(key)
         parent_latest = ctx.nodes[parent_cn]["current_patchset"]
         ctx.edges.append({
             "from": parent_cn,
@@ -467,7 +471,7 @@ def _build_separate_group(
         )
 
         group_edges = _group_internal_edges(
-            group_raw, group_ctps, group_nodes
+            ctx, group_raw, group_ctps, group_nodes
         )
         group_edges.extend(
             _group_cross_edges(ctx, group_ctps, group_rev_parents, group_nodes)
@@ -589,13 +593,14 @@ def _fetch_group_revisions(
 
 
 def _group_internal_edges(
+    ctx: BuildContext,
     group_raw: list[dict[str, Any]],
     group_ctps: dict[str, tuple[int, int]],
     group_nodes: dict[int, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Build edges between members of a single separate group from
-    its own raw_entries."""
-    seen: set[tuple[int, int]] = set()
+    its own raw_entries. Uses the global ctx.seen_edges set so a
+    (from, to) pair never gets added twice across all stages."""
     out: list[dict[str, Any]] = []
     for entry in group_raw:
         pc = entry["parent_commit"]
@@ -608,9 +613,9 @@ def _group_internal_edges(
         if parent_cn == child_cn:
             continue
         key = (parent_cn, child_cn)
-        if key in seen:
+        if key in ctx.seen_edges:
             continue
-        seen.add(key)
+        ctx.seen_edges.add(key)
         parent_latest = group_nodes[parent_cn]["current_patchset"]
         out.append({
             "from": parent_cn,
@@ -629,8 +634,8 @@ def _group_cross_edges(
     group_nodes: dict[int, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Build stale edges main_series → group_node, linking this
-    separate series back to its historical base in main."""
-    seen: set[tuple[int, int]] = set()
+    separate series back to its historical base in main. Uses the
+    global ctx.seen_edges set for dedupe."""
     out: list[dict[str, Any]] = []
     for child_hash, parent_hash in group_rev_parents.items():
         if not parent_hash:
@@ -651,9 +656,9 @@ def _group_cross_edges(
             # useful edge.
             continue
         key = (parent_cn, child_cn)
-        if key in seen:
+        if key in ctx.seen_edges:
             continue
-        seen.add(key)
+        ctx.seen_edges.add(key)
         parent_latest = ctx.nodes[parent_cn]["current_patchset"]
         out.append({
             "from": parent_cn,
