@@ -138,22 +138,38 @@ function computeMainChain(anchorId) {
     while (true) {
         const kids = childrenInGroup(cursor).filter(k => !seen.has(k));
         if (kids.length === 0) break;
-        // Prefer: branch that leads to an active patch, then the branch
-        // with the most descendants (the dominant real chain), and finally
-        // non-stale edge as tiebreaker. Descendant count must beat
-        // staleness — otherwise a non-stale dead-end child wins over the
-        // long "real" chain whose entry edge happens to be stale.
+        // Ranking for the main-chain walker:
+        //   1. Has an active descendant (we never climb into dead
+        //      abandoned subtrees).
+        //   2. Quality class: a branch whose entry edge is non-stale
+        //      AND has at least one descendant is the "current live"
+        //      chain (class 0). A stale entry edge, or any branch
+        //      with no descendants, is class 1 (historical / dead
+        //      end). Class 0 always wins over class 1.
+        //   3. Within the same class, prefer more descendants.
+        //   4. Final tiebreaker: non-stale edge.
+        // This lets the walker follow the current commit graph
+        // whenever a live branch exists, but still reach a long
+        // "all stale" chain when every current option is a dead end
+        // (e.g. the 38305 case where every entry edge is stale).
         kids.sort((a, b) => {
             const ha = hasActiveDescendant(a) ? 0 : 1;
             const hb = hasActiveDescendant(b) ? 0 : 1;
             if (ha !== hb) return ha - hb;
-            const dd = countDesc(b) - countDesc(a);
-            if (dd !== 0) return dd;
+
             const ea = edgeMap[cursor + '->' + a];
             const eb = edgeMap[cursor + '->' + b];
-            const sa = ea ? (ea.is_stale ? 1 : 0) : 0;
-            const sb = eb ? (eb.is_stale ? 1 : 0) : 0;
-            return sa - sb;
+            const staleA = ea && ea.is_stale ? 1 : 0;
+            const staleB = eb && eb.is_stale ? 1 : 0;
+            const descA = countDesc(a);
+            const descB = countDesc(b);
+
+            const classA = (staleA === 0 && descA > 0) ? 0 : 1;
+            const classB = (staleB === 0 && descB > 0) ? 0 : 1;
+            if (classA !== classB) return classA - classB;
+
+            if (descA !== descB) return descB - descA;
+            return staleA - staleB;
         });
         upward.push(kids[0]);
         seen.add(kids[0]);
@@ -257,19 +273,34 @@ function _layoutTree(ctx, id, x, level, dir) {
 
     if (kids.length === 0) return level;
 
-    // Separate main-chain child from side branches. If no child is
-    // on the global main chain, pick the best local candidate
-    // (prefer non-stale, then most descendants) so the dominant
-    // branch continues straight up instead of drifting sideways.
-    let mainKid = kids.find(k => mainChain.has(k));
-    if (!mainKid && kids.length > 1) {
+    // Pick the child that continues straight up. Same quality-
+    // class rule as computeMainChain: a non-stale child with any
+    // descendants (class 0) always beats a stale or dead-end one
+    // (class 1); within a class, prefer more descendants. The
+    // global main chain is used as a tie-break so coordinated main-
+    // chain nodes line up exactly, but the ranking is applied to
+    // all children so that off-main subtrees still grow up along
+    // their own current branch.
+    let mainKid = null;
+    if (kids.length > 0) {
         const sorted = kids.slice().sort((a, b) => {
+            const ma = mainChain.has(a) ? 0 : 1;
+            const mb = mainChain.has(b) ? 0 : 1;
+
             const ea = edgeMap[id + '->' + a];
             const eb = edgeMap[id + '->' + b];
-            const sa = ea && ea.is_stale ? 1 : 0;
-            const sb = eb && eb.is_stale ? 1 : 0;
-            if (sa !== sb) return sa - sb;
-            return countDesc(b) - countDesc(a);
+            const staleA = ea && ea.is_stale ? 1 : 0;
+            const staleB = eb && eb.is_stale ? 1 : 0;
+            const descA = countDesc(a);
+            const descB = countDesc(b);
+
+            const classA = (staleA === 0 && descA > 0) ? 0 : 1;
+            const classB = (staleB === 0 && descB > 0) ? 0 : 1;
+            if (classA !== classB) return classA - classB;
+
+            if (ma !== mb) return ma - mb;
+            if (descA !== descB) return descB - descA;
+            return staleA - staleB;
         });
         mainKid = sorted[0];
     }
