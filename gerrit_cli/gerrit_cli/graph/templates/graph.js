@@ -176,197 +176,203 @@ function countDesc(id) {
 }
 
 // ─── TREE LAYOUT ───
+//
+// The layout pipeline is split across several small top-level helpers
+// that operate on a shared "layout context" object. Each helper does
+// one geometric job: caches, recursive tree placement, the upward
+// walk from the anchor, the downward base chain, separate-series
+// fallback, and the final collision pass. `computeLayout` is the
+// orchestrator that creates the context and runs the phases in
+// order.
+//
+// The layout context shape:
+//   ctx = {
+//     anchorId,     // the current anchor
+//     positions,    // id -> { x, y }, mutated by each phase
+//     widthCache,   // memoized subtree width
+//     heightCache,  // memoized subtree height
+//   }
+// `mainChain` is module-level so it's available to styling too.
+
 const LEVEL_H = 140;
 const NODE_W = 380;
 
-function computeLayout(anchorId) {
-    mainChain = computeMainChain(anchorId);
-    const positions = {};
+function _layoutShouldShow(ctx, id) {
+    if (id == ctx.anchorId) return true;
+    return nodeVisible(id);
+}
 
-    // The anchor is always shown regardless of filter state; everything
-    // else delegates to the shared nodeVisible helper.
-    function shouldShow(id) {
-        if (id == anchorId) return true;
-        return nodeVisible(id);
+// Subtree width = number of visible leaf descendants. Memoized per
+// layout context so repeated queries from the tree-placement phases
+// don't re-walk the same subtrees.
+function _subtreeWidth(ctx, id) {
+    if (ctx.widthCache[id] !== undefined) return ctx.widthCache[id];
+    const kids = (childrenOf[id] || []).filter(k => _layoutShouldShow(ctx, k));
+    if (kids.length === 0) { ctx.widthCache[id] = 1; return 1; }
+    let w = 0;
+    for (const k of kids) w += _subtreeWidth(ctx, k);
+    ctx.widthCache[id] = w;
+    return w;
+}
+
+// Subtree height = max depth from `id` to any visible leaf.
+function _subtreeHeight(ctx, id) {
+    if (ctx.heightCache[id] !== undefined) return ctx.heightCache[id];
+    const kids = (childrenOf[id] || []).filter(k => _layoutShouldShow(ctx, k));
+    if (kids.length === 0) { ctx.heightCache[id] = 1; return 1; }
+    let maxH = 0;
+    for (const k of kids) maxH = Math.max(maxH, _subtreeHeight(ctx, k));
+    ctx.heightCache[id] = maxH + 1;
+    return maxH + 1;
+}
+
+// Recursively place a subtree rooted at `id`. `dir` is +1 when
+// children grow up (negative y) and -1 when they grow down. Returns
+// the outermost level used by the subtree so callers can chain
+// placements without overlap.
+function _layoutTree(ctx, id, x, level, dir) {
+    const positions = ctx.positions;
+    if (positions[id]) return level;
+    positions[id] = { x, y: -level * LEVEL_H };
+
+    const kids = (childrenOf[id] || [])
+        .filter(k => _layoutShouldShow(ctx, k))
+        .filter(k => !positions[k]);
+
+    if (kids.length === 0) return level;
+
+    // Separate main-chain child from side branches. If no child is
+    // on the global main chain, pick the best local candidate
+    // (prefer non-stale, then most descendants) so the dominant
+    // branch continues straight up instead of drifting sideways.
+    let mainKid = kids.find(k => mainChain.has(k));
+    if (!mainKid && kids.length > 1) {
+        const sorted = kids.slice().sort((a, b) => {
+            const ea = edgeMap[id + '->' + a];
+            const eb = edgeMap[id + '->' + b];
+            const sa = ea && ea.is_stale ? 1 : 0;
+            const sb = eb && eb.is_stale ? 1 : 0;
+            if (sa !== sb) return sa - sb;
+            return countDesc(b) - countDesc(a);
+        });
+        mainKid = sorted[0];
+    }
+    const sideKids = kids.filter(k => k !== mainKid).sort((a, b) => a - b);
+
+    if (kids.length === 1) {
+        return _layoutTree(ctx, kids[0], x, level + dir, dir);
     }
 
-    // Compute subtree width for each node (number of leaf descendants)
-    const widthCache = {};
-    function subtreeWidth(id) {
-        if (widthCache[id] !== undefined) return widthCache[id];
-        const kids = (childrenOf[id] || []).filter(shouldShow);
-        if (kids.length === 0) { widthCache[id] = 1; return 1; }
-        let w = 0;
-        kids.forEach(k => { w += subtreeWidth(k); });
-        widthCache[id] = w;
-        return w;
+    // Place side branches first, alternating left and right.
+    const leftKids = [];
+    const rightKids = [];
+    for (let i = 0; i < sideKids.length; i++) {
+        (i % 2 === 0 ? leftKids : rightKids).push(sideKids[i]);
     }
 
-    // Compute subtree height (max depth) for a node
-    const heightCache = {};
-    function subtreeHeight(id) {
-        if (heightCache[id] !== undefined) return heightCache[id];
-        const kids = (childrenOf[id] || []).filter(shouldShow);
-        if (kids.length === 0) { heightCache[id] = 1; return 1; }
-        let maxH = 0;
-        kids.forEach(k => { maxH = Math.max(maxH, subtreeHeight(k)); });
-        heightCache[id] = maxH + 1;
-        return maxH + 1;
+    let extremeSideLevel = level;
+    const updateExtreme = (l) => {
+        extremeSideLevel = dir > 0
+            ? Math.max(extremeSideLevel, l)
+            : Math.min(extremeSideLevel, l);
+    };
+
+    let leftX = x - NODE_W;
+    for (const kid of leftKids) {
+        const w = _subtreeWidth(ctx, kid);
+        const top = _layoutTree(
+            ctx, kid, leftX - (w - 1) * NODE_W / 2, level + dir, dir
+        );
+        updateExtreme(top);
+        leftX -= w * NODE_W;
     }
 
-    // Layout a tree from a node.
-    // dir=1: children grow upward (negative y). dir=-1: children grow downward.
-    // Returns the outermost level used by this subtree.
-    function layoutTree(id, x, level, dir) {
-        if (positions[id]) return level;
-        positions[id] = { x, y: -level * LEVEL_H };
-
-        const kids = (childrenOf[id] || [])
-            .filter(shouldShow)
-            .filter(k => !positions[k]);
-
-        if (kids.length === 0) return level;
-
-        // Separate main chain child from side branches.
-        // If no child is on the global main chain, elect the best local
-        // candidate (prefer non-stale edge, then most descendants) so the
-        // dominant branch continues straight up instead of going sideways.
-        let mainKid = kids.find(k => mainChain.has(k));
-        if (!mainKid && kids.length > 1) {
-            const sorted = kids.slice().sort((a, b) => {
-                const ea = edgeMap[id + '->' + a];
-                const eb = edgeMap[id + '->' + b];
-                const sa = ea && ea.is_stale ? 1 : 0;
-                const sb = eb && eb.is_stale ? 1 : 0;
-                if (sa !== sb) return sa - sb;
-                return countDesc(b) - countDesc(a);
-            });
-            mainKid = sorted[0];
-        }
-        const sideKids = kids.filter(k => k !== mainKid).sort((a, b) => a - b);
-
-        if (kids.length === 1) {
-            return layoutTree(kids[0], x, level + dir, dir);
-        }
-
-        // Place side branches first, alternating left and right
-        const leftKids = [];
-        const rightKids = [];
-        for (let i = 0; i < sideKids.length; i++) {
-            if (i % 2 === 0) {
-                leftKids.push(sideKids[i]);
-            } else {
-                rightKids.push(sideKids[i]);
-            }
-        }
-
-        // Track the outermost level used by side branches
-        let extremeSideLevel = level;
-        function updateExtreme(l) {
-            if (dir > 0) { extremeSideLevel = Math.max(extremeSideLevel, l); }
-            else { extremeSideLevel = Math.min(extremeSideLevel, l); }
-        }
-
-        // Place left branches (negative x offsets)
-        let leftX = x - NODE_W;
-        for (const kid of leftKids) {
-            const w = subtreeWidth(kid);
-            const top = layoutTree(kid, leftX - (w - 1) * NODE_W / 2, level + dir, dir);
-            updateExtreme(top);
-            leftX -= w * NODE_W;
-        }
-
-        // Place right branches (positive x offsets)
-        let rightX = x + NODE_W;
-        for (const kid of rightKids) {
-            const w = subtreeWidth(kid);
-            const top = layoutTree(kid, rightX + (w - 1) * NODE_W / 2, level + dir, dir);
-            updateExtreme(top);
-            rightX += w * NODE_W;
-        }
-
-        // Place main chain child past the outermost side branch so nothing overlaps
-        if (mainKid) {
-            const mainLevel = extremeSideLevel + dir;
-            return layoutTree(mainKid, x, mainLevel, dir);
-        }
-
-        return extremeSideLevel;
+    let rightX = x + NODE_W;
+    for (const kid of rightKids) {
+        const w = _subtreeWidth(ctx, kid);
+        const top = _layoutTree(
+            ctx, kid, rightX + (w - 1) * NODE_W / 2, level + dir, dir
+        );
+        updateExtreme(top);
+        rightX += w * NODE_W;
     }
 
-    // Convenience wrapper: layout growing upward (default direction)
-    function layoutUp(id, x, level) {
-        return layoutTree(id, x, level, 1);
+    // Place main-chain child past the outermost side branch so
+    // nothing overlaps with it.
+    if (mainKid) {
+        const mainLevel = extremeSideLevel + dir;
+        return _layoutTree(ctx, mainKid, x, mainLevel, dir);
     }
+    return extremeSideLevel;
+}
 
-    // Place anchor
-    positions[anchorId] = { x: 0, y: 0 };
+// Step 1: place the anchor and everything reachable from it via
+// childrenOf (growing upward, negative y).
+function _layoutUpwardFromAnchor(ctx) {
+    const positions = ctx.positions;
+    positions[ctx.anchorId] = { x: 0, y: 0 };
 
-    // Layout upward tree from anchor — delegate to layoutUp which
-    // handles main-chain centering and left/right branch spreading
-    // We already placed the anchor at (0,0), so layoutUp will handle children
-    {
-        const upKids = (childrenOf[anchorId] || [])
-            .filter(shouldShow)
-            .filter(k => !positions[k]);
-        if (upKids.length > 0) {
-            // Temporarily remove anchor from positions so layoutUp re-processes children
-            const saved = positions[anchorId];
-            delete positions[anchorId];
-            layoutUp(anchorId, 0, 0);
-            // Restore anchor position (layoutUp would have set it to same coords)
-        }
-    }
+    const upKids = (childrenOf[ctx.anchorId] || [])
+        .filter(k => _layoutShouldShow(ctx, k))
+        .filter(k => !positions[k]);
+    if (upKids.length === 0) return;
 
-    // Layout base chain (below anchor) — straight down
-    // Side branches grow UPWARD from each base node. Each base node must
-    // be placed far enough below the previous one so that its upward
-    // branches don't overlap with the previous node's branches.
-    // This mirrors the upward tree logic: above the anchor, the main chain
-    // child is pushed UP past side branches. Below the anchor, each base
-    // node is pushed DOWN by its own branch height so branches grow into
-    // the space ABOVE it.
-    let cursor = parentOf[anchorId];
-    let prevNodeLevel = 0; // anchor at level 0
+    // layoutTree re-positions the anchor at the same coords when
+    // called with positions cleared, so clear → call → it's back.
+    delete positions[ctx.anchorId];
+    _layoutTree(ctx, ctx.anchorId, 0, 0, 1);
+}
+
+// Step 2: place the base chain below the anchor. Each base node is
+// pushed far enough down that its upward side branches don't
+// overlap the previous node's area. Mirrors the upward layout logic
+// where the main-chain child is pushed past side branches.
+function _layoutBaseChain(ctx) {
+    const positions = ctx.positions;
+    let cursor = parentOf[ctx.anchorId];
+    let prevNodeLevel = 0; // anchor is at level 0
 
     while (cursor && nodeMap[cursor] && !positions[cursor]) {
-        if (!shouldShow(cursor) && cursor != anchorId) {
+        if (!_layoutShouldShow(ctx, cursor) && cursor != ctx.anchorId) {
             cursor = parentOf[cursor];
             continue;
         }
 
-        // Pre-compute how tall this node's side branches will be
+        // Pre-compute how tall this node's side branches will be so
+        // the node can be placed far enough below the previous one
+        // that the branches (which grow UP branchH levels) don't
+        // overlap.
         const sideKids = (childrenOf[cursor] || [])
-            .filter(shouldShow)
-            .filter(k => k != anchorId && !mainChain.has(k));
+            .filter(k => _layoutShouldShow(ctx, k))
+            .filter(k => k != ctx.anchorId && !mainChain.has(k));
         let branchH = 0;
         for (const sk of sideKids) {
-            branchH = Math.max(branchH, subtreeHeight(sk));
+            branchH = Math.max(branchH, _subtreeHeight(ctx, sk));
         }
 
-        // Place this node far enough below prevNodeLevel so its branches
-        // (which grow UP branchH levels) don't overlap with the previous
-        // node's area. Branches reach from (nodeLevel+1) to (nodeLevel+branchH).
-        // Constraint: nodeLevel + branchH < prevNodeLevel
-        // So: nodeLevel = prevNodeLevel - branchH - 1 (at least 1 gap)
         const nodeLevel = prevNodeLevel - Math.max(1, branchH + 1);
         positions[cursor] = { x: 0, y: -nodeLevel * LEVEL_H };
 
-        // Now actually layout the side branches growing upward
+        // Lay out the side branches growing upward from this base node.
         if (sideKids.length > 0) {
-            // Re-filter to exclude already positioned nodes
             const kids = sideKids.filter(k => !positions[k]);
             kids.sort((a, b) => a - b);
             let leftX = -NODE_W;
             let rightX = NODE_W;
             for (let bi = 0; bi < kids.length; bi++) {
                 const bk = kids[bi];
-                const w = subtreeWidth(bk);
+                const w = _subtreeWidth(ctx, bk);
                 if (bi % 2 === 0) {
-                    layoutTree(bk, rightX + (w - 1) * NODE_W / 2, nodeLevel + 1, 1);
+                    _layoutTree(
+                        ctx, bk, rightX + (w - 1) * NODE_W / 2,
+                        nodeLevel + 1, 1
+                    );
                     rightX += w * NODE_W;
                 } else {
-                    layoutTree(bk, leftX - (w - 1) * NODE_W / 2, nodeLevel + 1, 1);
+                    _layoutTree(
+                        ctx, bk, leftX - (w - 1) * NODE_W / 2,
+                        nodeLevel + 1, 1
+                    );
                     leftX -= w * NODE_W;
                 }
             }
@@ -375,146 +381,172 @@ function computeLayout(anchorId) {
         prevNodeLevel = nodeLevel;
         cursor = parentOf[cursor];
     }
+}
 
-    // Layout separate series: if a group has cross-group edges to
-    // main-series nodes, its members are already reachable via
-    // childrenOf and layoutTree has placed them as stale side
-    // branches. For groups with NO connection to main (truly
-    // disconnected), place them in columns to the far right.
-    const groups = G.separate_groups || [];
-    if (groups.length > 0) {
-        let mainMaxX = 0;
-        for (const pos of Object.values(positions)) {
-            mainMaxX = Math.max(mainMaxX, pos.x);
+// Step 3a: for a fully-disconnected separate group (no cross-group
+// edges into main), place its members as a vertical column at
+// `fallbackX`, one level per BFS distance from any root. Returns the
+// next free X for the caller to use.
+function _layoutDisconnectedGroup(ctx, group, visibleIds, fallbackX) {
+    const positions = ctx.positions;
+    const groupSet = new Set(group.node_ids);
+    const groupParent = {};
+    const groupChildren = {};
+    for (const id of visibleIds) groupChildren[id] = [];
+    for (const e of G.edges) {
+        if (groupSet.has(e.from) && groupSet.has(e.to)) {
+            groupParent[e.to] = e.from;
+            groupChildren[e.from].push(e.to);
         }
-        let fallbackX = mainMaxX + NODE_W * 2;
-
-        for (const group of groups) {
-            const visibleIds = group.node_ids.filter(
-                id => nodeVisible(id)
-            );
-            if (visibleIds.length === 0) continue;
-
-            // Check if ANY node in this group was already placed
-            // via layoutTree (reachable through cross-group edges).
-            const alreadyPlaced = visibleIds.some(
-                id => positions[id] !== undefined
-            );
-            if (alreadyPlaced) {
-                // Let layoutTree handle the rest via childrenOf.
-                // Any unplaced nodes fall through to the fixup below.
-                continue;
-            }
-
-            // Truly disconnected group: place as a vertical column
-            // to the far right.
-            const groupSet = new Set(group.node_ids);
-            const groupParent = {};
-            const groupChildren = {};
-            for (const id of visibleIds) groupChildren[id] = [];
-            for (const e of G.edges) {
-                if (groupSet.has(e.from) && groupSet.has(e.to)) {
-                    groupParent[e.to] = e.from;
-                    groupChildren[e.from].push(e.to);
-                }
-            }
-            const roots = visibleIds.filter(id => !groupParent[id]);
-            const levels = {};
-            const bfsQ = [];
-            for (const r of roots) {
-                levels[r] = 0;
-                bfsQ.push(r);
-            }
-            while (bfsQ.length > 0) {
-                const n = bfsQ.shift();
-                for (const c of (groupChildren[n] || [])) {
-                    if (!(c in levels)) {
-                        levels[c] = levels[n] + 1;
-                        bfsQ.push(c);
-                    }
-                }
-            }
-            for (const id of visibleIds) {
-                if (!(id in levels)) levels[id] = 0;
-            }
-            for (const id of visibleIds) {
-                positions[id] = {
-                    x: fallbackX,
-                    y: -levels[id] * LEVEL_H,
-                };
-            }
-            fallbackX += NODE_W * 1.5;
-        }
-
-        // Fixup: any group nodes whose group had SOME reachable
-        // nodes but this particular one wasn't placed (e.g. the
-        // cross-group edge went to a different node in the group)
-        // — place them near their parent/child if reachable.
-        for (const group of groups) {
-            for (const id of group.node_ids) {
-                if (positions[id] !== undefined) continue;
-                if (!nodeVisible(id)) continue;
-                // Find a placed neighbor in same group
-                let neighborPos = null;
-                let neighborDir = 0;
-                for (const e of G.edges) {
-                    if (e.to === id && positions[e.from]) {
-                        neighborPos = positions[e.from];
-                        neighborDir = 1;  // child goes up
-                        break;
-                    }
-                    if (e.from === id && positions[e.to]) {
-                        neighborPos = positions[e.to];
-                        neighborDir = -1;  // parent goes down
-                        break;
-                    }
-                }
-                if (neighborPos) {
-                    let px = neighborPos.x;
-                    let py = neighborPos.y + neighborDir * LEVEL_H;
-                    // Shift right if occupied
-                    let tries = 0;
-                    while (tries < 20) {
-                        let occupied = false;
-                        for (const p of Object.values(positions)) {
-                            if (Math.abs(p.x - px) < NODE_W * 0.9
-                                    && Math.abs(p.y - py) < LEVEL_H * 0.6) {
-                                occupied = true; break;
-                            }
-                        }
-                        if (!occupied) break;
-                        px += NODE_W;
-                        tries++;
-                    }
-                    positions[id] = { x: px, y: py };
-                }
+    }
+    const roots = visibleIds.filter(id => !groupParent[id]);
+    const levels = {};
+    const bfsQ = [];
+    for (const r of roots) {
+        levels[r] = 0;
+        bfsQ.push(r);
+    }
+    while (bfsQ.length > 0) {
+        const n = bfsQ.shift();
+        for (const c of (groupChildren[n] || [])) {
+            if (!(c in levels)) {
+                levels[c] = levels[n] + 1;
+                bfsQ.push(c);
             }
         }
     }
+    for (const id of visibleIds) {
+        if (!(id in levels)) levels[id] = 0;
+    }
+    for (const id of visibleIds) {
+        positions[id] = {
+            x: fallbackX,
+            y: -levels[id] * LEVEL_H,
+        };
+    }
+    return fallbackX + NODE_W * 1.5;
+}
 
-    // Final collision avoidance: shift any nodes that ended up at
-    // exactly the same (x, y) as another node.
-    const occupied = new Map();
-    for (const [idStr, pos] of Object.entries(positions)) {
-        const key = pos.x + ',' + pos.y;
-        if (occupied.has(key)) {
-            // Shift this one right
-            let px = pos.x + NODE_W;
+// Step 3b: stray group members that weren't placed by either
+// _layoutTree (cross-group edge not reaching them) or the
+// disconnected-column fallback. Glue them next to a placed same-
+// group neighbor, shifting right until the spot is free.
+function _layoutGroupFixup(ctx, groups) {
+    const positions = ctx.positions;
+    for (const group of groups) {
+        for (const id of group.node_ids) {
+            if (positions[id] !== undefined) continue;
+            if (!nodeVisible(id)) continue;
+
+            let neighborPos = null;
+            let neighborDir = 0;
+            for (const e of G.edges) {
+                if (e.to === id && positions[e.from]) {
+                    neighborPos = positions[e.from];
+                    neighborDir = 1;  // child goes up
+                    break;
+                }
+                if (e.from === id && positions[e.to]) {
+                    neighborPos = positions[e.to];
+                    neighborDir = -1;  // parent goes down
+                    break;
+                }
+            }
+            if (!neighborPos) continue;
+
+            let px = neighborPos.x;
+            const py = neighborPos.y + neighborDir * LEVEL_H;
             let tries = 0;
-            while (tries < 30) {
-                const k2 = px + ',' + pos.y;
-                if (!occupied.has(k2)) break;
+            while (tries < 20) {
+                let occupied = false;
+                for (const p of Object.values(positions)) {
+                    if (Math.abs(p.x - px) < NODE_W * 0.9
+                            && Math.abs(p.y - py) < LEVEL_H * 0.6) {
+                        occupied = true;
+                        break;
+                    }
+                }
+                if (!occupied) break;
                 px += NODE_W;
                 tries++;
             }
-            positions[idStr] = { x: px, y: pos.y };
-            occupied.set(px + ',' + pos.y, idStr);
-        } else {
-            occupied.set(key, idStr);
+            positions[id] = { x: px, y: py };
         }
     }
+}
 
-    return positions;
+// Step 3: lay out separate-series groups. Groups that had at least
+// one node pulled in by _layoutTree via a cross-group edge are left
+// mostly alone (the fixup handles any stragglers); truly
+// disconnected groups get their own column at the far right.
+function _layoutSeparateGroups(ctx) {
+    const positions = ctx.positions;
+    const groups = G.separate_groups || [];
+    if (groups.length === 0) return;
+
+    let mainMaxX = 0;
+    for (const pos of Object.values(positions)) {
+        mainMaxX = Math.max(mainMaxX, pos.x);
+    }
+    let fallbackX = mainMaxX + NODE_W * 2;
+
+    for (const group of groups) {
+        const visibleIds = group.node_ids.filter(id => nodeVisible(id));
+        if (visibleIds.length === 0) continue;
+
+        const alreadyPlaced = visibleIds.some(
+            id => positions[id] !== undefined
+        );
+        if (alreadyPlaced) continue;
+
+        fallbackX = _layoutDisconnectedGroup(
+            ctx, group, visibleIds, fallbackX
+        );
+    }
+
+    _layoutGroupFixup(ctx, groups);
+}
+
+// Step 4: any nodes that ended up at exactly the same (x, y) — e.g.
+// because two fixup passes chose the same slot — get shifted right
+// until they find an empty coordinate.
+function _resolveCollisions(ctx) {
+    const positions = ctx.positions;
+    const occupied = new Map();
+    for (const [idStr, pos] of Object.entries(positions)) {
+        const key = pos.x + ',' + pos.y;
+        if (!occupied.has(key)) {
+            occupied.set(key, idStr);
+            continue;
+        }
+        let px = pos.x + NODE_W;
+        let tries = 0;
+        while (tries < 30) {
+            if (!occupied.has(px + ',' + pos.y)) break;
+            px += NODE_W;
+            tries++;
+        }
+        positions[idStr] = { x: px, y: pos.y };
+        occupied.set(px + ',' + pos.y, idStr);
+    }
+}
+
+// Orchestrator: build the context, compute the main chain, run each
+// layout phase, and return the positions dict that renderGraph feeds
+// into vis.js.
+function computeLayout(anchorId) {
+    mainChain = computeMainChain(anchorId);
+    const ctx = {
+        anchorId,
+        positions: {},
+        widthCache: {},
+        heightCache: {},
+    };
+    _layoutUpwardFromAnchor(ctx);
+    _layoutBaseChain(ctx);
+    _layoutSeparateGroups(ctx);
+    _resolveCollisions(ctx);
+    return ctx.positions;
 }
 
 // ─── VIS.JS SETUP ───
