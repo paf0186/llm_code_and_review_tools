@@ -1,6 +1,5 @@
 // ─── DATA ───
 const G = __GRAPH_DATA__;
-const ANCHOR_INIT = G.anchor;
 
 // ─── DERIVED STRUCTURES ───
 const nodeMap = {};     // id -> node
@@ -41,7 +40,12 @@ if (G.generated_at) {
 renderLegend();
 
 // ─── STATE ───
-let currentAnchor = ANCHOR_INIT;
+// The anchor is fixed for the lifetime of the page. The underlying
+// data was fetched against G.anchor, so re-centering the layout on
+// a different node would show a partial view of a different series
+// — confusing more than helpful. Focus (Z) handles the "just center
+// this node on screen" case without touching layout.
+const currentAnchor = G.anchor;
 let mainChain = new Set();
 let selectedNodeId = null;
 
@@ -1230,11 +1234,6 @@ function showNodeInfo(id) {
                 now at ps${staleIncoming[0].parent_latest}
             </div>
         </div>` : ''}
-        <div class="field" style="margin-top:8px">
-            <button class="primary" onclick="reanchor(${node.id})" style="font-size:12px;padding:4px 12px;border-radius:6px;cursor:pointer">
-                Re-anchor here
-            </button>
-        </div>
 
         ${above.length > 0 ? `
         <h2>Dependents (${above.length})</h2>
@@ -1269,7 +1268,7 @@ function chainItem(node, edge, selectedId, isBelow) {
 function showDefaultInfo() {
     document.getElementById('info').innerHTML = `
         <p style="color:#8b949e">Click a node to see details.<br><br>
-        Double-click to open in Gerrit.<br><br>
+        Double-click (or middle-click) to open in Gerrit.<br><br>
         <b>Ctrl+F</b> to search &nbsp; <b>?</b> for all shortcuts</p>`;
 }
 
@@ -1293,12 +1292,6 @@ function formatGerritDate(s) {
 function clickNode(id) {
     network.selectNodes([id]);
     network.focus(id, { scale: 1.0, animation: { duration: 300, easingFunction: 'easeInOutQuad' } });
-    showNodeInfo(id);
-}
-
-function reanchor(id) {
-    currentAnchor = id;
-    renderGraph();
     showNodeInfo(id);
 }
 
@@ -1350,11 +1343,6 @@ const actions = {
         renderGraph();
         if (selectedNodeId !== null) showNodeInfo(selectedNodeId);
     },
-    resetAnchor() {
-        currentAnchor = ANCHOR_INIT;
-        renderGraph();
-        showDefaultInfo();
-    },
     fit() {
         network.fit({
             animation: { duration: 400, easingFunction: 'easeInOutQuad' },
@@ -1374,6 +1362,17 @@ const actions = {
             animation: { duration: 200, easingFunction: 'easeInOutQuad' },
         });
     },
+    pan(dx, dy) {
+        // Step size scales inverse to the zoom level so each key
+        // press moves roughly the same distance on screen.
+        const scale = network.getScale();
+        const step = 80 / scale;
+        const v = network.getViewPosition();
+        network.moveTo({
+            position: { x: v.x + dx * step, y: v.y + dy * step },
+            animation: { duration: 150, easingFunction: 'easeInOutQuad' },
+        });
+    },
     togglePanel() {
         document.getElementById('panel').classList.toggle('hidden');
         setTimeout(() => network.redraw(), 100);
@@ -1384,7 +1383,7 @@ const actions = {
     toggleTheme() {
         document.body.classList.toggle('light');
         document.getElementById('btn-theme').textContent =
-            isLight() ? 'Dark' : 'Light';
+            isLight() ? 'Dark Mode' : 'Light Mode';
         renderLegend();
         this.refresh();
     },
@@ -1401,7 +1400,6 @@ const actions = {
 
 document.getElementById('chk-abandoned').addEventListener('change', () => actions.refresh());
 document.getElementById('chk-history').addEventListener('change', () => actions.refresh());
-document.getElementById('btn-reset').addEventListener('click', () => actions.resetAnchor());
 document.getElementById('btn-fit').addEventListener('click', () => actions.fit());
 document.getElementById('btn-focus').addEventListener('click', () => actions.focusSelection());
 document.getElementById('btn-search').addEventListener('click', openSearch);
@@ -1420,12 +1418,15 @@ document.addEventListener('keydown', function(e) {
     if (e.target.tagName === 'INPUT') return;
     const k = e.key;
     if (k === 'f' || k === 'F') actions.fit();
-    else if (k === 'r' || k === 'R') actions.resetAnchor();
     else if (k === 'z' || k === 'Z') actions.focusSelection();
     else if (k === '+' || k === '=') actions.zoom(1.3);
     else if (k === '-') actions.zoom(1 / 1.3);
     else if (k === '?') actions.toggleHelp();
     else if (k === 'Escape') actions.closeOverlaysOrSelection();
+    else if (k === 'ArrowLeft')  { e.preventDefault(); actions.pan(-1,  0); }
+    else if (k === 'ArrowRight') { e.preventDefault(); actions.pan( 1,  0); }
+    else if (k === 'ArrowUp')    { e.preventDefault(); actions.pan( 0, -1); }
+    else if (k === 'ArrowDown')  { e.preventDefault(); actions.pan( 0,  1); }
 });
 
 // ─── PANEL RESIZE DRAG ───
