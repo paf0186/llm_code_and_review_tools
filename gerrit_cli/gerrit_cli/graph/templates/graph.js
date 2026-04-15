@@ -56,18 +56,48 @@ function _groupOf(id) {
     return n ? (n.series_group || 0) : 0;
 }
 
+// ─── VISIBILITY / TRAVERSAL PRIMITIVES ───
+// Single source of truth for "is this node visible right now?".
+// Abandoned nodes are hidden unless the "Show abandoned" toggle is on
+// OR the node bridges active patches in the main chain. Every
+// consumer — layout, info panel, traversal filters — goes through
+// here so changing the rule is a one-line edit.
+function showAbandonedEnabled() {
+    return document.getElementById('chk-abandoned').checked;
+}
+
+function nodeVisible(id) {
+    const n = nodeMap[id];
+    if (!n) return false;
+    if (n.status === 'ABANDONED' && !showAbandonedEnabled() && !mainChain.has(id)) {
+        return false;
+    }
+    return true;
+}
+
+// Return the in-series-group children of `id`. Every traversal that
+// computes "descendants" for main-chain selection must stay inside
+// the starting node's group — cross-group stale edges exist as
+// visual hints only and shouldn't inflate descendant counts.
+function childrenInGroup(id) {
+    const myGroup = _groupOf(id);
+    const out = [];
+    for (const k of (childrenOf[id] || [])) {
+        const kn = nodeMap[k];
+        if (!kn) continue;
+        if ((kn.series_group || 0) !== myGroup) continue;
+        out.push(k);
+    }
+    return out;
+}
+
 const activeDescCache = {};
 function hasActiveDescendant(id) {
     if (activeDescCache[id] !== undefined) return activeDescCache[id];
     const n = nodeMap[id];
     if (!n) { activeDescCache[id] = false; return false; }
     if (n.status !== 'ABANDONED') { activeDescCache[id] = true; return true; }
-    const myGroup = n.series_group || 0;
-    const kids = childrenOf[id] || [];
-    for (const k of kids) {
-        const kn = nodeMap[k];
-        if (!kn) continue;
-        if ((kn.series_group || 0) !== myGroup) continue; // don't cross groups
+    for (const k of childrenInGroup(id)) {
         if (hasActiveDescendant(k)) {
             activeDescCache[id] = true;
             return true;
@@ -81,21 +111,16 @@ function computeMainChain(anchorId) {
     const chain = new Set();
     chain.add(anchorId);
 
-    const anchorGroup = _groupOf(anchorId);
-
     // Walk upward: pick best child at each step. Do NOT filter out abandoned
     // children — we want to walk through abandoned patches if there are still
     // active patches above them. Trailing abandoned tails are trimmed below.
-    // Stay within the anchor's series group so cross-group stale edges don't
-    // derail the walk.
+    // childrenInGroup naturally bounds the walk to the anchor's series
+    // group so cross-group stale edges don't derail it.
     let cursor = anchorId;
     const upward = [];
     const seen = new Set([anchorId]);
     while (true) {
-        const kids = (childrenOf[cursor] || []).filter(k => {
-            if (!nodeMap[k] || seen.has(k)) return false;
-            return _groupOf(k) === anchorGroup;
-        });
+        const kids = childrenInGroup(cursor).filter(k => !seen.has(k));
         if (kids.length === 0) break;
         // Prefer: branch that leads to an active patch, then the branch
         // with the most descendants (the dominant real chain), and finally
@@ -143,16 +168,9 @@ const descCache = {};
 function countDesc(id) {
     if (descCache[id] !== undefined) return descCache[id];
     let count = 0;
-    const myGroup = _groupOf(id);
-    (childrenOf[id] || []).forEach(c => {
-        const cn = nodeMap[c];
-        if (!cn) return;
-        // Don't count descendants that belong to a different series
-        // group — cross-group stale edges would otherwise inflate the
-        // count with unrelated history and skew main-chain selection.
-        if ((cn.series_group || 0) !== myGroup) return;
+    for (const c of childrenInGroup(id)) {
         count += 1 + countDesc(c);
-    });
+    }
     descCache[id] = count;
     return count;
 }
@@ -164,20 +182,12 @@ const NODE_W = 380;
 function computeLayout(anchorId) {
     mainChain = computeMainChain(anchorId);
     const positions = {};
-    const showAbandoned = document.getElementById('chk-abandoned').checked;
 
-    function isVisible(id) {
-        const n = nodeMap[id];
-        if (!n) return false;
-        // Abandoned nodes that bridge active patches in the main chain stay
-        // visible even when "Show abandoned" is off.
-        if (n.status === 'ABANDONED' && !showAbandoned && !mainChain.has(id)) return false;
-        return true;
-    }
-
+    // The anchor is always shown regardless of filter state; everything
+    // else delegates to the shared nodeVisible helper.
     function shouldShow(id) {
         if (id == anchorId) return true;
-        return isVisible(id);
+        return nodeVisible(id);
     }
 
     // Compute subtree width for each node (number of leaf descendants)
@@ -381,7 +391,7 @@ function computeLayout(anchorId) {
 
         for (const group of groups) {
             const visibleIds = group.node_ids.filter(
-                id => nodeMap[id] && isVisible(id)
+                id => nodeVisible(id)
             );
             if (visibleIds.length === 0) continue;
 
@@ -443,7 +453,7 @@ function computeLayout(anchorId) {
         for (const group of groups) {
             for (const id of group.node_ids) {
                 if (positions[id] !== undefined) continue;
-                if (!nodeMap[id] || !isVisible(id)) continue;
+                if (!nodeVisible(id)) continue;
                 // Find a placed neighbor in same group
                 let neighborPos = null;
                 let neighborDir = 0;
@@ -782,7 +792,6 @@ function styleForEdge(edge, edgeId, flags, C) {
 // ─── RENDER ───
 function renderGraph() {
     const positions = computeLayout(currentAnchor);
-    const showAbandoned = document.getElementById('chk-abandoned').checked;
 
     // Determine which nodes are in the "active subtree" (reachable from anchor going up)
     const activeUp = new Set();
@@ -1059,20 +1068,13 @@ function showNodeInfo(id) {
     if (!node) return;
     const panel = document.getElementById('info');
 
-    // Respect current filter state
-    const showAbandoned = document.getElementById('chk-abandoned').checked;
-    function isListVisible(nid) {
-        const n = nodeMap[nid];
-        if (!n) return false;
-        if (n.status === 'ABANDONED' && !showAbandoned && !mainChain.has(nid)) return false;
-        return true;
-    }
-
-    // Find chain above (walk up from this node)
+    // Find chain above (walk up from this node). Visibility is
+    // routed through the shared nodeVisible helper so this view
+    // stays in sync with the main graph filter state.
     const above = [];
     function walkUp(nid, depth) {
         if (depth > 50) return;
-        const kids = (childrenOf[nid] || []).filter(k => nodeMap[k] && isListVisible(k));
+        const kids = (childrenOf[nid] || []).filter(k => nodeVisible(k));
         // Sort: main chain first
         kids.sort((a, b) => {
             if (mainChain.has(a) && !mainChain.has(b)) return -1;
@@ -1091,7 +1093,7 @@ function showNodeInfo(id) {
     const below = [];
     let cursor = parentOf[id];
     while (cursor && nodeMap[cursor] && below.length < 30) {
-        if (!isListVisible(cursor)) { id = cursor; cursor = parentOf[cursor]; continue; }
+        if (!nodeVisible(cursor)) { id = cursor; cursor = parentOf[cursor]; continue; }
         const edge = edgeMap[cursor + '->' + id];
         below.push({ node: nodeMap[cursor], edge: edge });
         id = cursor;
