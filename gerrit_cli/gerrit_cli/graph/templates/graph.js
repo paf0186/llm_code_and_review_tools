@@ -603,6 +603,182 @@ function reviewHealth(node) {
     return 'pending';
 }
 
+// ─── STYLING ───
+// Pure helpers that turn a node/edge + computed flags into the
+// vis.js options object. Kept separate from renderGraph so visual
+// tweaks live in one place.
+
+// Node label: WIP prefix + #id + truncated subject + review line.
+function nodeLabel(node) {
+    const shortSubject = node.subject.length > 50
+        ? node.subject.substring(0, 47) + '...'
+        : node.subject;
+
+    let reviewLine = '';
+    if (node.status !== 'ABANDONED' && node.status !== 'MERGED') {
+        const rv = node.review || {};
+
+        // Verified summary: one token per voter.
+        const vVotes = rv.verified_votes || [];
+        let vStr = '';
+        if (vVotes.length === 0) {
+            vStr = 'V:- ';
+        } else {
+            vStr = vVotes.map(v => {
+                let n = v.name;
+                if (/jenkins/i.test(n)) n = 'J';
+                else if (/maloo/i.test(n)) n = 'M';
+                else n = n.split(' ')[0].substring(0, 6);
+                return n + ':' + (v.value > 0 ? '\u2713' : '\u2717');
+            }).join(' ') + ' ';
+        }
+
+        // CR summary.
+        const crPlus = (rv.cr_votes || []).filter(v => v.value > 0).length;
+        const crMinus = (rv.cr_votes || []).filter(v => v.value < 0).length;
+        let crStr = '';
+        if (rv.cr_veto) {
+            crStr = '\u2717 VETO';
+        } else if (rv.cr_approved) {
+            crStr = '\u2713 +2';
+        } else if (crPlus > 0 || crMinus > 0) {
+            const parts = [];
+            if (crPlus > 0) parts.push(crPlus + '\u00d7(+1)');
+            if (crMinus > 0) parts.push(crMinus + '\u00d7(-1)');
+            crStr = parts.join(' ');
+        } else {
+            crStr = 'none';
+        }
+
+        const cc = rv.unresolved_count || 0;
+        const ccStr = cc > 0 ? ` | \u{1f4ac}${cc}` : '';
+        reviewLine = `\n${vStr}| CR: ${crStr}${ccStr}`;
+    }
+
+    const wipPrefix = node.is_wip ? '\u{1f6a7} ' : '';
+    return `${wipPrefix}#${node.id}\n${shortSubject}${reviewLine}`;
+}
+
+// Pick the base color palette for a node (before any separate-series
+// border override). Returns { bg, border, font }.
+function nodeBaseColors(node, flags, C) {
+    if (flags.isBase) return C.DIM;
+    if (node.status === 'NEW') {
+        const health = reviewHealth(node);
+        if (health === 'bad_veto') return C.REVIEW_BAD_VETO;
+        if (health === 'bad_maloo') return C.REVIEW_BAD_MALOO;
+        if (health === 'bad_jenkins') return C.REVIEW_BAD_JENKINS;
+        if (health === 'bad_other') return C.REVIEW_BAD_OTHER;
+        if (health === 'good') return C.REVIEW_GOOD;
+        return C.STATUS.NEW;
+    }
+    return C.STATUS[node.status] || C.STATUS.NEW;
+}
+
+// Full vis.js node options for a rendered node.
+function styleForNode(node, flags, position, C) {
+    let colors = nodeBaseColors(node, flags, C);
+
+    // Separate-series border: applied per-node. A separate-group node
+    // that the main upward walk actually reached (activeUp) is a
+    // bridge visually stitched into the main tree and renders without
+    // the border. Everything else in a separate group keeps the
+    // distinctive grey border so viewers can tell them apart at a
+    // glance.
+    if (flags.isStandaloneSeparate) {
+        colors = Object.assign({}, colors, { border: '#c9d1d9' });
+    }
+
+    // Non-main nodes above the anchor dim slightly. Separate-series
+    // nodes are never dimmed — they render at full intensity with
+    // their own distinctive border.
+    const opacity = (
+        flags.isAbove && !flags.isMain && !flags.isAnchor && !flags.isSeparate
+    ) ? 0.7 : 1.0;
+
+    const borderWidth = flags.isAnchor
+        ? 4
+        : (node.is_wip
+            ? 3
+            : (flags.isStandaloneSeparate
+                ? 3
+                : (flags.isMain ? 2 : 1)));
+
+    return {
+        id: node.id,
+        label: nodeLabel(node),
+        x: position.x,
+        y: position.y,
+        fixed: { x: true, y: true },
+        color: {
+            background: colors.bg,
+            border: colors.border,
+            highlight: { background: C.HIGHLIGHT.bg, border: C.HIGHLIGHT.border },
+        },
+        font: { color: colors.font, size: 12, face: 'monospace' },
+        // WIP nodes get a dashed border (vis.js native). Only attach
+        // shapeProperties when WIP so non-WIP nodes use defaults.
+        ...(node.is_wip ? { shapeProperties: { borderDashes: [6, 4] } } : {}),
+        borderWidth: borderWidth,
+        opacity: opacity,
+        _isAnchor: flags.isAnchor,
+        _isMain: flags.isMain,
+    };
+}
+
+// Full vis.js edge options for a rendered edge.
+function styleForEdge(edge, edgeId, flags, C) {
+    let color;
+    let width;
+    let dashes;
+    if (edge.is_stale) {
+        color = C.edgeStale;
+        width = 2;
+        dashes = [8, 4];
+    } else if (flags.isMainEdge) {
+        color = C.edgeMain;
+        width = 3;
+        dashes = false;
+    } else if (flags.isBase) {
+        color = C.edgeDim;
+        width = 1;
+        dashes = false;
+    } else {
+        // Non-stale edges that aren't on the main chain (separate
+        // series, side branches, cross-group links) still represent a
+        // real current dependency — same color as main, just thinner
+        // so the dominant chain still stands out.
+        color = C.edgeMain;
+        width = 1.5;
+        dashes = false;
+    }
+
+    const label = edge.is_stale
+        ? `ps${edge.parent_patchset}→${edge.parent_latest}`
+        : `ps${edge.parent_patchset}`;
+
+    return {
+        id: 'e' + edgeId,
+        from: edge.from,
+        to: edge.to,
+        label: label,
+        color: { color: color, highlight: C.HIGHLIGHT.bg },
+        width: width,
+        dashes: dashes,
+        font: {
+            color: edge.is_stale ? C.edgeFontStale : C.edgeFontNormal,
+            size: edge.is_stale ? 14 : 12,
+            strokeWidth: 4,
+            strokeColor: C.edgeStroke,
+        },
+        smooth: {
+            type: 'cubicBezier',
+            forceDirection: 'vertical',
+            roundness: 0.4,
+        },
+    };
+}
+
 // ─── RENDER ───
 function renderGraph() {
     const positions = computeLayout(currentAnchor);
@@ -620,6 +796,8 @@ function renderGraph() {
 
 
 
+    const C = getColors();
+
     // Build vis.js nodes
     const visNodes = [];
     const visEdges = [];
@@ -633,126 +811,18 @@ function renderGraph() {
         const isMain = mainChain.has(id);
         const isAbove = activeUp.has(id);
         // Any node in a non-zero series_group is a separate-series
-        // member: it gets its own distinctive border and is never
-        // dimmed or treated as base-chain context. Cross-group edges
-        // are informational only — they don't make a separate series
-        // "part of" the main chain.
+        // member. Cross-group edges are informational only — they
+        // don't make a separate series "part of" the main chain.
         const isSeparate = (node.series_group || 0) > 0;
-        // Separate-group nodes aren't part of the base chain — color by status.
+        // Separate-group nodes aren't part of the base chain.
         const isBase = !isAbove && !isAnchor && !isSeparate;
-
-        const C = getColors();
-        let colors;
-        if (isBase) {
-            colors = C.DIM;
-        } else if (node.status === 'NEW') {
-            const health = reviewHealth(node);
-            if (health === 'bad_veto') colors = C.REVIEW_BAD_VETO;
-            else if (health === 'bad_maloo') colors = C.REVIEW_BAD_MALOO;
-            else if (health === 'bad_jenkins') colors = C.REVIEW_BAD_JENKINS;
-            else if (health === 'bad_other') colors = C.REVIEW_BAD_OTHER;
-            else if (health === 'good') colors = C.REVIEW_GOOD;
-            else colors = C.STATUS.NEW;
-        } else {
-            colors = C.STATUS[node.status] || C.STATUS.NEW;
-        }
-
-        // Separate-series border: applied per-node. A separate-group
-        // node that the main upward walk actually reached (activeUp)
-        // is a "bridge" visually stitched into the main tree and
-        // renders without the border. All other separate-group nodes
-        // — those positioned by the separate-groups fallback layout —
-        // keep the distinctive grey border so viewers can tell them
-        // apart from the main series at a glance.
+        // Separate-group nodes that the upward walk didn't reach are
+        // the ones rendered with the distinctive border.
         const isStandaloneSeparate = isSeparate && !isAbove;
-        if (isStandaloneSeparate) {
-            colors = Object.assign({}, colors, { border: '#c9d1d9' });
-        }
 
-        // If not on main chain and above anchor, slightly dim.
-        // Separate-series nodes are never dimmed — they render at full
-        // intensity with their own distinctive border.
-        const opacity = (isAbove && !isMain && !isAnchor && !isSeparate) ? 0.7 : 1.0;
-
-        const shortSubject = node.subject.length > 50
-            ? node.subject.substring(0, 47) + '...'
-            : node.subject;
-
-        // Build review status line
-        let reviewLine = '';
-        if (node.status !== 'ABANDONED' && node.status !== 'MERGED') {
-            const rv = node.review || {};
-
-            // Verified summary: show each voter's status
-            const vVotes = rv.verified_votes || [];
-            let vStr = '';
-            if (vVotes.length === 0) {
-                vStr = 'V:- ';
-            } else {
-                vStr = vVotes.map(v => {
-                    // Abbreviate known names
-                    let n = v.name;
-                    if (/jenkins/i.test(n)) n = 'J';
-                    else if (/maloo/i.test(n)) n = 'M';
-                    else n = n.split(' ')[0].substring(0, 6);
-                    return n + ':' + (v.value > 0 ? '\u2713' : '\u2717');
-                }).join(' ') + ' ';
-            }
-
-            // CR summary
-            const crPlus = (rv.cr_votes || []).filter(v => v.value > 0).length;
-            const crMinus = (rv.cr_votes || []).filter(v => v.value < 0).length;
-            let crStr = '';
-            if (rv.cr_veto) {
-                crStr = '\u2717 VETO';
-            } else if (rv.cr_approved) {
-                crStr = '\u2713 +2';
-            } else if (crPlus > 0 || crMinus > 0) {
-                const parts = [];
-                if (crPlus > 0) parts.push(crPlus + '\u00d7(+1)');
-                if (crMinus > 0) parts.push(crMinus + '\u00d7(-1)');
-                crStr = parts.join(' ');
-            } else {
-                crStr = 'none';
-            }
-            // Comment count
-            const cc = rv.unresolved_count || 0;
-            const ccStr = cc > 0 ? ` | \u{1f4ac}${cc}` : '';
-            reviewLine = `\n${vStr}| CR: ${crStr}${ccStr}`;
-        }
-
-        // WIP marker: prefix the label with 🚧 so it's unmistakable
-        // even at low zoom. Combined with the dashed border below.
-        const wipPrefix = node.is_wip ? '\u{1f6a7} ' : '';
-        let label = `${wipPrefix}#${node.id}\n${shortSubject}${reviewLine}`;
-
-        visNodes.push({
-            id: id,
-            label: label,
-            x: pos.x,
-            y: pos.y,
-            fixed: { x: true, y: true },
-            color: {
-                background: colors.bg,
-                border: colors.border,
-                highlight: { background: C.HIGHLIGHT.bg, border: C.HIGHLIGHT.border },
-            },
-            font: {
-                color: colors.font,
-                size: 12,
-                face: 'monospace',
-            },
-            // WIP nodes get a dashed border (vis.js native) — pattern
-            // reads as "non-final" and never collides with the solid
-            // colored borders that encode review state. Only attach
-            // shapeProperties when WIP so non-WIP nodes use defaults.
-            ...(node.is_wip ? { shapeProperties: { borderDashes: [6, 4] } } : {}),
-            borderWidth: isAnchor ? 4 : (node.is_wip ? 3 : (isStandaloneSeparate ? 3 : (isMain ? 2 : 1))),
-            opacity: opacity,
-            // Custom data for click handler
-            _isAnchor: isAnchor,
-            _isMain: isMain,
-        });
+        visNodes.push(styleForNode(node, {
+            isAnchor, isMain, isAbove, isSeparate, isBase, isStandaloneSeparate,
+        }, pos, C));
     }
 
     // Historical-parent suppression: a patch can have multiple
@@ -822,59 +892,7 @@ function renderGraph() {
         const toSeparate = toNode && (toNode.series_group || 0) > 0;
         const isBase = !activeUp.has(edge.to) && !toSeparate;
 
-        const C = getColors();
-        let color, width, dashes;
-        if (edge.is_stale) {
-            color = C.edgeStale;
-            width = 2;
-            dashes = [8, 4];
-        } else if (isMainEdge) {
-            color = C.edgeMain;
-            width = 3;
-            dashes = false;
-        } else if (isBase) {
-            color = C.edgeDim;
-            width = 1;
-            dashes = false;
-        } else {
-            // Non-stale edges that aren't on the main chain (separate
-            // series, side branches, cross-group links) still
-            // represent a real current dependency — render them in
-            // the main edge color, just thinner so the dominant chain
-            // still stands out.
-            color = C.edgeMain;
-            width = 1.5;
-            dashes = false;
-        }
-
-        // Edge label: patchset number
-        let label;
-        if (edge.is_stale) {
-            label = `ps${edge.parent_patchset}→${edge.parent_latest}`;
-        } else {
-            label = `ps${edge.parent_patchset}`;
-        }
-
-        visEdges.push({
-            id: 'e' + edgeIdx,
-            from: edge.from,
-            to: edge.to,
-            label: label,
-            color: { color: color, highlight: C.HIGHLIGHT.bg },
-            width: width,
-            dashes: dashes,
-            font: {
-                color: edge.is_stale ? C.edgeFontStale : C.edgeFontNormal,
-                size: edge.is_stale ? 14 : 12,
-                strokeWidth: 4,
-                strokeColor: C.edgeStroke,
-            },
-            smooth: {
-                type: 'cubicBezier',
-                forceDirection: 'vertical',
-                roundness: 0.4,
-            },
-        });
+        visEdges.push(styleForEdge(edge, edgeIdx, { isMainEdge, isBase }, C));
         edgeIdx++;
     }
 
