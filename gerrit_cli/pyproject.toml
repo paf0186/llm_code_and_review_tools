@@ -55,6 +55,9 @@ Documentation = "https://github.com/anthropics/claude-code"
 [tool.setuptools.packages.find]
 include = ["gerrit_cli*"]
 
+[tool.setuptools.package-data]
+gerrit_cli = ["templates/*.html", "templates/*.css", "templates/*.js"]
+
 [tool.pytest.ini_options]
 testpaths = ["gerrit_cli/tests"]
 addopts = "--strict-markers"

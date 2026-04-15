@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gerrit Series Graph</title>
+<script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<style>
+/*__CSS__*/
+</style>
+</head>
+<body>
+
+<div class="topbar">
+    <h1 id="title">Gerrit Series Graph</h1>
+    <div class="stats" id="stats"></div>
+    <div class="legend">
+        <span style="color:var(--text-muted);font-weight:600">Nodes:</span>
+        <div class="legend-item"><span class="legend-dot" style="background:#238636"></span> Ready</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#1f6feb"></span> Pending</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#7a1a1a"></span> CR Veto</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#d32f2f"></span> Maloo</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#c47f17"></span> Jenkins</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#9b2d6e"></span> Other -1</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#6e40c9"></span> Merged</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#484f58"></span> Abandoned</div>
+        <div class="legend-item"><span class="legend-dot" style="background:transparent;border:2px solid #c9d1d9"></span> Topic/hashtag series</div>
+        <div class="legend-item"><span class="legend-dot" style="background:transparent;border:2px dashed #c9d1d9"></span> 🚧 WIP</div>
+        <span style="color:var(--text-muted);font-weight:600;margin-left:8px">Edges:</span>
+        <div class="legend-item"><span class="legend-dot" style="background:#d29922"></span> Stale</div>
+    </div>
+</div>
+
+<div class="controls">
+    <label><input type="checkbox" id="chk-abandoned"> Show abandoned</label>
+    <label><input type="checkbox" id="chk-history"> Show historical parents</label>
+    <button class="primary" id="btn-reset">Reset</button>
+    <button id="btn-fit">Fit</button>
+    <button id="btn-focus">Focus</button>
+    <button id="btn-search">Search</button>
+    <button id="btn-panel">Panel</button>
+    <button id="btn-theme">Light</button>
+    <button id="btn-help">?</button>
+    <div id="generated-at" style="margin-left:auto;font-size:12px;font-weight:500;color:var(--text-muted)"></div>
+</div>
+
+<div class="help-overlay hidden" id="help-overlay" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div class="help-box">
+        <h3>Keyboard Shortcuts</h3>
+        <table>
+            <tr><td>Ctrl+F</td><td>Search nodes</td></tr>
+            <tr><td>F</td><td>Fit graph to view</td></tr>
+            <tr><td>Z</td><td>Focus selected node / anchor</td></tr>
+            <tr><td>R</td><td>Reset to original anchor</td></tr>
+            <tr><td>+ / -</td><td>Zoom in / out</td></tr>
+            <tr><td>Esc</td><td>Deselect / close search</td></tr>
+            <tr><td>?</td><td>Toggle this help</td></tr>
+        </table>
+        <div style="margin-top:12px;font-size:12px;color:var(--text-muted)">
+            Click a node to see details. Double-click to open in Gerrit.
+        </div>
+        <div style="text-align:right;margin-top:10px">
+            <button onclick="document.getElementById('help-overlay').classList.add('hidden')"
+                style="background:var(--btn-bg);color:var(--text);border:1px solid var(--btn-border);
+                padding:4px 14px;border-radius:6px;cursor:pointer;font-size:12px">Close</button>
+        </div>
+    </div>
+</div>
+
+<div class="main">
+    <div class="search-bar hidden" id="search-bar">
+        <input type="text" id="search-input" placeholder="Search nodes...">
+        <span class="search-info" id="search-info"></span>
+        <button id="search-prev" title="Previous (Shift+Enter)">&#x25B2;</button>
+        <button id="search-next" title="Next (Enter)">&#x25BC;</button>
+        <button id="search-close" title="Close (Esc)">&#x2715;</button>
+    </div>
+    <div id="graph"></div>
+    <div class="panel" id="panel">
+        <div class="panel-drag" id="panel-drag"></div>
+        <h2>Node Details</h2>
+        <div id="info">
+            <p style="color:#8b949e">Click a node to see details and its chain.<br><br>
+            Double-click to open in Gerrit.<br><br>
+            <b>Ctrl+F</b> to search &nbsp; <b>?</b> for all shortcuts</p>
+        </div>
+    </div>
+</div>
+
+<script>
+/*__JS__*/
+</script>
+</body>
+</html>
