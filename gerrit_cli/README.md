@@ -65,29 +65,53 @@ gc graph 61962 --comments
 
 # Skip CI link fetching for faster generation
 gc graph 61962 --skip-ci-details
+
+# Don't pull in series sharing the anchor's topic / hashtags
+gc graph 61962 --skip-topic --skip-hashtag
+
+# Or pull in additional ones beyond the anchor's own
+gc graph 61962 --include-topic extra-topic-name
+gc graph 61962 --include-hashtag extra-hashtag
 ```
 
 The generated HTML is self-contained (uses vis.js from CDN) and includes:
 
-- **Vertical tree layout** growing upward from the anchor change
-- **Review health coloring**: green (verified OK + 2 non-author CR +1s),
-  red (any verified -1 or CR veto), blue (pending)
-- **Review status line** on each node: verified voters (J:+1 M:-1) and
-  code review summary (CR: 3x(+1))
-- **Unresolved comment count** on nodes (from batch query, no extra calls)
-- **Edge labels** showing which patchset each dependency goes through
-  (e.g., `ps57`). Stale edges show `ps53->57` in orange with dashed lines
-- **Click-to-re-anchor**: click any node to make it the new starting point;
-  the tree re-layouts with that node as the root
-- **Filters**: toggle abandoned/stale branches on/off
-- **Side panel**: click a node to see full details including:
-  - Review health badge, all verified voters with clickable Jenkins/Maloo links
-  - Code review votes with reviewer names (author votes dimmed)
-  - Unresolved comments list with clickable links to Gerrit (with `--comments`)
-  - Chain of dependents/dependencies, and a "Re-anchor here" button
-- **Dark/Light mode**: toggle with the "Light" button
-- **Keyboard shortcuts**: `F` = fit to screen, `Z` = focus/zoom to selected
-  node, `R` = reset to initial anchor
+- **Vertical tree layout** growing upward from the anchor change, with
+  the dominant main-chain centered and side branches spread left/right.
+- **Review health coloring** for active changes: green (verified OK + 2
+  non-author CR +1s), dark red (CR veto), bright red (Maloo -1), orange
+  (Jenkins -1), pink (other -1), blue (pending). Merged = purple,
+  abandoned = grey.
+- **Review status line** on each node: verified voters (`J:✓ M:✗`) and
+  code-review summary (`CR: 3×(+1) | 💬4`).
+- **WIP detection**: changes marked work-in-progress render with a 🚧
+  prefix and a dashed border so they stand out from finished patches.
+- **Stale edges** (child depends on an older patchset of parent) are
+  drawn in orange with dashed lines and labels like `ps53→57`.
+- **Separate-series trees** for patches sharing the anchor's topic or
+  hashtags. Each group gets its own distinctive border when it's not
+  wired back into the main chain by a cross-group edge.
+- **Abandoned bridges**: if an abandoned patch sits between two active
+  ones in the main chain, it stays visible by default so the chain
+  isn't cut. Pure trailing-abandoned tails are hidden unless
+  "Show abandoned" is checked.
+- **Historical parents**: a patch rebased across multiple parents gets
+  only its single most-relevant incoming edge by default. Toggle
+  "Show historical parents" to see the rest.
+- **Side panel**: click a node to see full details — status badge,
+  verified voters with clickable Jenkins/Maloo links, code-review votes
+  with reviewer names (author votes dimmed), unresolved comments (with
+  `--comments`), and walkable chains of dependents/dependencies.
+- **Search** (Ctrl/Cmd+F): fuzzy search across change number, subject,
+  author, ticket; highlights matches and walks through them with
+  Enter / Shift+Enter.
+- **Dark/Light mode**: toggle with the "Light Mode" / "Dark Mode" button
+  in the toolbar.
+- **Keyboard shortcuts**: `F` = fit to view, `Z` = focus selected node,
+  `+` / `-` = zoom, arrow keys = pan, `Ctrl+F` = search, `?` = toggle
+  the help overlay, `Esc` = deselect / close overlays.
+- **Double-click or middle-click** a node to open the change in Gerrit.
+  Middle-click opens in a background tab.
 
 ## Commands
 

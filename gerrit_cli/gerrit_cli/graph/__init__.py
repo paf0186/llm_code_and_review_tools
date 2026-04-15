@@ -7,8 +7,9 @@ an interactive HTML visualization with:
 - Vertical tree layout growing upward from the anchor change
 - Edge labels showing which patchset each dependency goes through
 - Stale edges highlighted (child depends on old patchset of parent)
-- Click-to-re-anchor: click any node to make it the new starting point
-- Filter controls for abandoned/stale changes
+- Click a node to see its review state and chains of dependents/ancestors
+- Filter controls for abandoned changes and historical-parent edges
+- Separate-series trees for topic/hashtag-matching patches
 
 The key insight: Gerrit's /related endpoint shows one patchset per change
 in the commit chain. When a change is rebased, its old patchset's children
