@@ -50,12 +50,6 @@ let mainChain = new Set();
 // Nodes placed as historical base-chain context (below the anchor
 // in the linear parentOf walk). renderGraph dims these.
 let baseChainSet = new Set();
-// Main-series nodes that the normal upward/base-chain walks never
-// reached and ended up in the synthetic "unplaced" column. They're
-// conceptually a separate cluster even though their series_group is
-// 0, so renderGraph gives them the distinctive separate-series
-// border.
-let isolatedMainSet = new Set();
 let selectedNodeId = null;
 
 // ─── MAIN CHAIN COMPUTATION ───
@@ -638,7 +632,6 @@ function _layoutUnplacedMainSeries(ctx) {
                 x: columnX + i * NODE_W,
                 y: -parseInt(lv) * LEVEL_H,
             };
-            isolatedMainSet.add(ids[i]);
         }
     }
 }
@@ -673,7 +666,6 @@ function _resolveCollisions(ctx) {
 function computeLayout(anchorId) {
     mainChain = computeMainChain(anchorId);
     baseChainSet = new Set();
-    isolatedMainSet = new Set();
     const ctx = {
         anchorId,
         positions: {},
@@ -755,7 +747,6 @@ function getColors() {
 // whenever the palette might have changed (init + theme toggle).
 function legendItems() {
     const C = getColors();
-    const separateBorder = '#c9d1d9';
     return [
         { kind: 'group', label: 'Nodes' },
         { kind: 'fill', label: 'Ready',       color: C.REVIEW_GOOD.bg },
@@ -766,8 +757,7 @@ function legendItems() {
         { kind: 'fill', label: 'Other -1',    color: C.REVIEW_BAD_OTHER.bg },
         { kind: 'fill', label: 'Merged',      color: C.STATUS.MERGED.bg },
         { kind: 'fill', label: 'Abandoned',   color: C.STATUS.ABANDONED.bg },
-        { kind: 'border', label: 'Topic/hashtag series', color: separateBorder },
-        { kind: 'border', label: '🚧 WIP',   color: separateBorder, dashed: true },
+        { kind: 'border', label: '🚧 WIP',   color: '#c9d1d9', dashed: true },
         { kind: 'group', label: 'Edges', marginLeft: '8px' },
         { kind: 'fill', label: 'Stale',       color: C.edgeStale },
     ];
@@ -884,8 +874,7 @@ function nodeLabel(node) {
     return `${wipPrefix}#${node.id}\n${shortSubject}${reviewLine}`;
 }
 
-// Pick the base color palette for a node (before any separate-series
-// border override). Returns { bg, border, font }.
+// Pick the base color palette for a node. Returns { bg, border, font }.
 function nodeBaseColors(node, flags, C) {
     if (flags.isBase) return C.DIM;
     if (node.status === 'NEW') {
@@ -902,21 +891,10 @@ function nodeBaseColors(node, flags, C) {
 
 // Full vis.js node options for a rendered node.
 function styleForNode(node, flags, position, C) {
-    let colors = nodeBaseColors(node, flags, C);
-
-    // Separate-series border: applied per-node. A separate-group node
-    // that the main upward walk actually reached (activeUp) is a
-    // bridge visually stitched into the main tree and renders without
-    // the border. Everything else in a separate group keeps the
-    // distinctive grey border so viewers can tell them apart at a
-    // glance.
-    if (flags.isStandaloneSeparate) {
-        colors = Object.assign({}, colors, { border: '#c9d1d9' });
-    }
+    const colors = nodeBaseColors(node, flags, C);
 
     // Non-main nodes above the anchor dim slightly. Separate-series
-    // nodes are never dimmed — they render at full intensity with
-    // their own distinctive border.
+    // nodes are never dimmed — they render at full intensity.
     const opacity = (
         flags.isAbove && !flags.isMain && !flags.isAnchor && !flags.isSeparate
     ) ? 0.7 : 1.0;
@@ -925,9 +903,7 @@ function styleForNode(node, flags, position, C) {
         ? 4
         : (node.is_wip
             ? 3
-            : (flags.isStandaloneSeparate
-                ? 3
-                : (flags.isMain ? 2 : 1)));
+            : (flags.isMain ? 2 : 1));
 
     return {
         id: node.id,
@@ -1090,17 +1066,9 @@ function renderGraph() {
         // in by the fallback layout — is NOT base chain and should
         // render with its real status color, not dimmed.
         const isBase = baseChainSet.has(id);
-        // Separate-series border: applied to
-        //   - topic/hashtag-group nodes the upward walk didn't reach
-        //     (so the group is visually distinct from main), AND
-        //   - main-series nodes that fell through into the
-        //     _layoutUnplacedMainSeries column (they're effectively a
-        //     separate cluster even though their series_group is 0).
-        const isStandaloneSeparate =
-            (isSeparate && !isAbove) || isolatedMainSet.has(id);
 
         visNodes.push(styleForNode(node, {
-            isAnchor, isMain, isAbove, isSeparate, isBase, isStandaloneSeparate,
+            isAnchor, isMain, isAbove, isSeparate, isBase,
         }, pos, C));
     }
 
