@@ -434,15 +434,19 @@ function _layoutBaseChain(ctx) {
 // next free X for the caller to use.
 function _layoutDisconnectedGroup(ctx, group, visibleIds, fallbackX) {
     const positions = ctx.positions;
-    const groupSet = new Set(group.node_ids);
+    const visibleSet = new Set(visibleIds);
     const groupParent = {};
     const groupChildren = {};
     for (const id of visibleIds) groupChildren[id] = [];
+    // Walk only edges whose endpoints are BOTH visible. Filtering by
+    // group_set alone (the group's full node list) lets edges from a
+    // hidden member into a visible one slip through, which then
+    // crashes on groupChildren[e.from].push because e.from is hidden
+    // and never got an entry in groupChildren.
     for (const e of G.edges) {
-        if (groupSet.has(e.from) && groupSet.has(e.to)) {
-            groupParent[e.to] = e.from;
-            groupChildren[e.from].push(e.to);
-        }
+        if (!visibleSet.has(e.from) || !visibleSet.has(e.to)) continue;
+        groupParent[e.to] = e.from;
+        groupChildren[e.from].push(e.to);
     }
     const roots = visibleIds.filter(id => !groupParent[id]);
     const levels = {};
@@ -463,13 +467,34 @@ function _layoutDisconnectedGroup(ctx, group, visibleIds, fallbackX) {
     for (const id of visibleIds) {
         if (!(id in levels)) levels[id] = 0;
     }
+
+    // Bucket by BFS level so multiple roots / same-level nodes get
+    // spread horizontally instead of stacking. Without this, two
+    // level-0 roots collide at (fallbackX, 0) and the
+    // collision-resolver shifts them right — but by then the next
+    // group has already been positioned `NODE_W * 1.5` away, so the
+    // overflow bleeds into it.
+    const buckets = {};
+    let maxBucketSize = 1;
     for (const id of visibleIds) {
-        positions[id] = {
-            x: fallbackX,
-            y: -levels[id] * LEVEL_H,
-        };
+        const lv = levels[id];
+        (buckets[lv] = buckets[lv] || []).push(id);
+        if (buckets[lv].length > maxBucketSize) {
+            maxBucketSize = buckets[lv].length;
+        }
     }
-    return fallbackX + NODE_W * 1.5;
+    for (const lv in buckets) {
+        const ids = buckets[lv].sort((a, b) => a - b);
+        for (let i = 0; i < ids.length; i++) {
+            positions[ids[i]] = {
+                x: fallbackX + i * NODE_W,
+                y: -parseInt(lv) * LEVEL_H,
+            };
+        }
+    }
+    // Reserve enough horizontal space for the widest level so the
+    // next group starts past this one's right edge.
+    return fallbackX + Math.max(1, maxBucketSize) * NODE_W + NODE_W * 0.5;
 }
 
 // Step 3b: stray group members that weren't placed by either
